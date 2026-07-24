@@ -20,6 +20,7 @@ You will receive a JSON object as the user prompt with the following shape:
   "project_name": "<extracted project name>",
   "project_location": "<absolute path to the project directory>",
   "file_type": "<maven | npm | gradle | unknown>",
+  "os": "<windows | linux | mac>",
   "metadata": {
     "language": {
       "javaVersion": "<string, when found>",
@@ -40,6 +41,8 @@ You will receive a JSON object as the user prompt with the following shape:
 ```
 
 The `metadata` field may contain partial data — include only the keys that were found. Unknown or absent keys are omitted.
+
+The `os` field indicates the user's operating system. Use it to adapt command syntax (e.g., path separators, line continuation, wrapper scripts). If `os` is absent, default to `linux`.
 
 ## Instructions
 
@@ -67,14 +70,17 @@ Based on `file_type` and `command`, build the appropriate shell command:
 | apply openReWrite  | *(see OpenRewrite section below)*      |
 
 **Gradle (`file_type: "gradle"`):**
-| command            | terminal command                       |
-|--------------------|----------------------------------------|
-| build              | `./gradlew clean build -x test`        |
-| test               | `./gradlew test`                       |
-| run                | `./gradlew bootRun`                    |
-| package            | `./gradlew build`                      |
-| install            | `./gradlew build`                      |
-| clean              | `./gradlew clean`                      |
+
+Use `./gradlew` on Linux/macOS and `gradlew` (no `./`) on Windows.
+
+| command            | terminal command (Linux/macOS)          | terminal command (Windows)         |
+|--------------------|----------------------------------------|------------------------------------||
+| build              | `./gradlew clean build -x test`        | `gradlew clean build -x test`      |
+| test               | `./gradlew test`                       | `gradlew test`                     |
+| run                | `./gradlew bootRun`                    | `gradlew bootRun`                  |
+| package            | `./gradlew build`                      | `gradlew build`                    |
+| install            | `./gradlew build`                      | `gradlew build`                    |
+| clean              | `./gradlew clean`                      | `gradlew clean`                    |
 
 **npm (`file_type: "npm"`):**
 | command   | terminal command        |
@@ -91,7 +97,8 @@ Additional normalization rules:
 - For matching only, trim whitespace and lowercase a copy of `command`.
 - If `file_type` is `maven` and `command` contains Maven goals (for example `clean install`, `verify`, `clean package -DskipTests`) but does not start with `mvn` or `./mvnw`, prepend `mvn ` to it.
 - If `file_type` is `maven` and `command` already starts with `mvn` or `./mvnw`, keep it unchanged.
-- If `file_type` is `gradle` and `command` already starts with `./gradlew` or `gradle`, keep it unchanged.
+- If `file_type` is `gradle` and `os` is `windows`: strip any leading `./` from the command wrapper (use `gradlew` not `./gradlew`). If `command` already starts with `./gradlew`, replace the prefix with `gradlew`.
+- If `file_type` is `gradle` and `os` is `linux` or `mac` and `command` already starts with `./gradlew` or `gradle`, keep it unchanged.
 - If `file_type` is `npm` and `command` already starts with `npm`, `npx`, or `pnpm`, keep it unchanged.
 - If `file_type` is `npm` and the command is not in the npm mapping table, use the raw command as-is.
 - Only set `terminal_command` to `null` when `file_type` is `unknown` or null.
@@ -109,7 +116,9 @@ When `command` is `apply openRewrite` (case-insensitive), build the OpenRewrite 
 echo "Ensure Java 21 is set as the active JDK before running this command" &&
 ```
 
-The full command structure uses `-U` to force-fetch the latest recipe definitions and `--define` instead of `-D` to prevent parsing failures across different Maven wrappers or shells. Use backslash (`\`) line continuation for readability:
+The full command structure uses `-U` to force-fetch the latest recipe definitions and `--define` instead of `-D` to prevent parsing failures across different Maven wrappers or shells.
+
+**On Linux/macOS** use backslash (`\`) line continuation for readability:
 ```
 cd <project_location> && \
 echo "Ensure Java 21 is set as the active JDK before running this command" && \
@@ -117,6 +126,11 @@ mvn -U org.openrewrite.maven:rewrite-maven-plugin:LATEST:run \
   --define rewrite.recipeArtifactCoordinates=<artifacts> \
   --define rewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion \
   --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
+```
+
+**On Windows** emit the command as a single line (no line continuation), since neither CMD nor PowerShell reliably support `\` continuation:
+```
+cd <project_location> && echo "Ensure Java 21 is set as the active JDK before running this command" && mvn -U org.openrewrite.maven:rewrite-maven-plugin:LATEST:run --define rewrite.recipeArtifactCoordinates=<artifacts> --define rewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
 ```
 
 Recipe selection from `metadata`:
