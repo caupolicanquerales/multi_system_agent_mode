@@ -38,6 +38,8 @@ Using the extracted project name, search the workspace to find the project direc
   - If `package.json` is found → type is `npm`
   - If `build.gradle` or `build.gradle.kts` is found → type is `gradle`
   - If project directory is found but none of the supported files are found → type is `unknown`
+5. Detect build wrappers:
+  - If `file_type` is `maven`: use `file_search` or `list_dir` to check whether `mvnw.cmd` exists in `project_location`. Set `hasMavenWrapper` to `true` if found, `false` otherwise.
 
 OpenRewrite project applicability rule:
 - If command is `apply openRewrite` and both Maven and Gradle indicators are absent for the chosen project, keep command as extracted but set `file_type` to `unknown`.
@@ -79,6 +81,7 @@ Return ONLY a JSON object with the following fields:
   "project_location": "<absolute path to the project directory>",
   "file_type": "<maven | npm | gradle | unknown>",
   "os": "<windows | linux | mac>",
+  "hasMavenWrapper": "<true | false — only when file_type is maven>",
   "metadata": {
     "language": {
       "javaVersion": "<string, when found>",

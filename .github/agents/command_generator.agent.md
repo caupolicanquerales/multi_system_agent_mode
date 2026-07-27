@@ -44,6 +44,8 @@ The `metadata` field may contain partial data — include only the keys that wer
 
 The `os` field indicates the user's operating system. Use it to adapt command syntax (e.g., path separators, line continuation, wrapper scripts). If `os` is absent, default to `linux`.
 
+The `hasMavenWrapper` field (boolean) indicates whether a `mvnw.cmd` / `mvnw` wrapper was found in the project directory. When `true`, use the wrapper executable instead of `mvn` (see Maven rules below).
+
 ## Instructions
 
 ### Step 1 — Generate the terminal command
@@ -59,15 +61,24 @@ Implementation order:
 Based on `file_type` and `command`, build the appropriate shell command:
 
 **Maven (`file_type: "maven"`):**
-| command            | terminal command                       |
-|--------------------|----------------------------------------|
-| build              | `mvn clean package -DskipTests`        |
-| test               | `mvn test`                             |
-| run                | `mvn spring-boot:run`                  |
-| package            | `mvn package`                          |
-| install            | `mvn clean install -DskipTests`        |
-| clean              | `mvn clean`                            |
-| apply openReWrite  | *(see OpenRewrite section below)*      |
+
+Resolve the Maven executable first:
+- **Windows + `hasMavenWrapper: true`**: use `& "<project_location>\mvnw.cmd"` (full absolute path with PowerShell call operator — never `cd` + bare `mvnw.cmd`).
+- **Windows + `hasMavenWrapper: false`**: use `mvn`.
+- **Linux/macOS + `hasMavenWrapper: true`**: use `./mvnw` (after `cd <project_location>`).
+- **Linux/macOS + `hasMavenWrapper: false`**: use `mvn`.
+
+In the table below, `<mvn>` represents the resolved executable from the rules above.
+
+| command            | terminal command                         |
+|--------------------|------------------------------------------|
+| build              | `<mvn> clean package -DskipTests`        |
+| test               | `<mvn> test`                             |
+| run                | `<mvn> spring-boot:run`                  |
+| package            | `<mvn> package`                          |
+| install            | `<mvn> clean install -DskipTests`        |
+| clean              | `<mvn> clean`                            |
+| apply openReWrite  | *(see OpenRewrite section below)*        |
 
 **Gradle (`file_type: "gradle"`):**
 
@@ -96,8 +107,8 @@ For commands not listed above, apply the normalization rules below.
 
 Additional normalization rules:
 - For matching only, trim whitespace and lowercase a copy of `command`.
-- If `file_type` is `maven` and `command` contains Maven goals (for example `clean install`, `verify`, `clean package -DskipTests`) but does not start with `mvn` or `./mvnw`, prepend `mvn ` to it. Additionally, if the resulting command does not already contain `test` as a standalone goal, `-DskipTests`, or `-Dmaven.test.skip`, append `-DskipTests` to skip tests by default.
-- If `file_type` is `maven` and `command` already starts with `mvn` or `./mvnw`, keep it unchanged.
+- If `file_type` is `maven` and `command` contains Maven goals (for example `clean install`, `verify`, `clean package -DskipTests`) but does not already start with a Maven executable token (`mvn`, `./mvnw`, `mvnw.cmd`), prepend the resolved `<mvn>` executable (from the wrapper rules above) to it. Additionally, if the resulting command does not already contain `test` as a standalone goal, `-DskipTests`, or `-Dmaven.test.skip`, append `-DskipTests` to skip tests by default.
+- If `file_type` is `maven` and `command` already starts with `mvn` or `./mvnw`, keep it unchanged but still apply the wrapper substitution for Windows when `hasMavenWrapper` is `true`.
 - If `file_type` is `gradle` and `os` is `windows`: use the **full absolute path** to `gradlew.bat` with the PowerShell call operator `&`: `& "<project_location>\gradlew.bat"`. Never use `Set-Location`, `cd`, `./gradlew`, or bare `gradlew` — they fail in non-PowerShell terminal contexts or when the working directory is not the project root.
 - If `file_type` is `gradle` and `os` is `linux` or `mac` and `command` already starts with `./gradlew` or `gradle`, keep it unchanged.
 - If `file_type` is `npm` and `command` already starts with `npm`, `npx`, or `pnpm`, keep it unchanged.
@@ -117,21 +128,32 @@ When `command` is `apply openRewrite` (case-insensitive), build the OpenRewrite 
 echo "Ensure Java 21 is set as the active JDK before running this command" &&
 ```
 
-The full command structure uses `-U` to force-fetch the latest recipe definitions and `--define` instead of `-D` to prevent parsing failures across different Maven wrappers or shells.
+The full command structure uses a pinned plugin version and `--define` instead of `-D` to prevent parsing failures across different Maven wrappers or shells. Avoid `-U` (force-update flag) since it always fetches `maven-metadata.xml` from remote, causing HTTP 401 failures in corporate Artifactory environments.
+
+Resolve the Maven executable the same way as the standard Maven commands (see **Maven executable resolution** above):
+- **Windows + `hasMavenWrapper: true`**: use `& "<project_location>\mvnw.cmd"` — no `cd` prefix needed.
+- **Windows + `hasMavenWrapper: false`**: use `mvn` prefixed by `cd <project_location> &&`.
+- **Linux/macOS + `hasMavenWrapper: true`**: use `./mvnw` prefixed by `cd <project_location> &&`.
+- **Linux/macOS + `hasMavenWrapper: false`**: use `mvn` prefixed by `cd <project_location> &&`.
 
 **On Linux/macOS** use backslash (`\`) line continuation for readability:
 ```
 cd <project_location> && \
 echo "Ensure Java 21 is set as the active JDK before running this command" && \
-mvn -U org.openrewrite.maven:rewrite-maven-plugin:LATEST:run \
+<mvn> org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run \
   --define rewrite.recipeArtifactCoordinates=<artifacts> \
   --define rewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion \
   --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
 ```
 
-**On Windows** emit the command as a single line (no line continuation), since neither CMD nor PowerShell reliably support `\` continuation:
+**On Windows with wrapper (`hasMavenWrapper: true`)** emit as a single line using the full wrapper path (no `cd`):
 ```
-cd <project_location> && echo "Ensure Java 21 is set as the active JDK before running this command" && mvn -U org.openrewrite.maven:rewrite-maven-plugin:LATEST:run --define rewrite.recipeArtifactCoordinates=<artifacts> --define rewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
+echo "Ensure Java 21 is set as the active JDK before running this command" ; & "<project_location>\mvnw.cmd" org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run --define rewrite.recipeArtifactCoordinates=<artifacts> --define rewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
+```
+
+**On Windows without wrapper (`hasMavenWrapper: false`)** emit as a single line with `cd` prefix:
+```
+cd <project_location> && echo "Ensure Java 21 is set as the active JDK before running this command" && mvn org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run --define rewrite.recipeArtifactCoordinates=<artifacts> --define rewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
 ```
 
 Recipe selection from `metadata`:
@@ -139,7 +161,7 @@ Recipe selection from `metadata`:
 | Condition | `rewrite.recipeArtifactCoordinates` addition | `rewrite.activeRecipes` addition |
 |---|---|---|
 | `metadata.language.javaVersion` is present AND numeric value < 21 | `org.openrewrite.recipe:rewrite-migrate-java:RELEASE` | `org.openrewrite.java.migrate.UpgradeToJava21` |
-| `metadata.frameworks.junitVersion` is exactly `"4"` | `org.openrewrite.recipe:rewrite-testing-frameworks:RELEASE` | `org.openrewrite.java.testing.junit5.JUnit4to5Migration` |
+| `metadata.frameworks.junitVersion` is present AND major version is 4 (value equals `"4"` OR starts with `"4."`) | `org.openrewrite.recipe:rewrite-testing-frameworks:RELEASE` | `org.openrewrite.java.testing.junit5.JUnit4to5Migration` |
 | `metadata.frameworks.springBootVersion` is present AND version is older than `3.4.x` (i.e. major < 3, or major = 3 and minor < 4) | `org.openrewrite.recipe:rewrite-spring:RELEASE` | `org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_4` |
 | Any recipe above is active | *(no extra artifact — uses the rewrite-maven-plugin directly)* | Always append `org.openrewrite.maven.UpgradeDependencyVersion` at the end |
 
@@ -153,7 +175,7 @@ Full example with all recipes active:
 ```bash
 cd /home/user/projects/my-app && \
 echo "Ensure Java 21 is set as the active JDK before running this command" && \
-mvn -U org.openrewrite.maven:rewrite-maven-plugin:LATEST:run \
+mvn org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run \
   --define rewrite.recipeArtifactCoordinates=org.openrewrite.recipe:rewrite-migrate-java:RELEASE,org.openrewrite.recipe:rewrite-testing-frameworks:RELEASE,org.openrewrite.recipe:rewrite-spring:RELEASE \
   --define rewrite.activeRecipes=org.openrewrite.java.migrate.UpgradeToJava21,org.openrewrite.java.testing.junit5.JUnit4to5Migration,org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_4,org.openrewrite.maven.UpgradeDependencyVersion \
   --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
@@ -217,7 +239,7 @@ $f="$env:TEMP\orewrite-init.gradle"; [System.IO.File]::WriteAllText($f, "initscr
 
 Input metadata:
 ```json
-{ "javaVersion": "11", "springBootVersion": "2.7.18", "junitVersion": "4" }
+{ "javaVersion": "11", "springBootVersion": "2.7.18", "junitVersion": "4.13.2" }
 ```
 Applied rules: Java 11 < 21 → upgrade Java; JUnit 4 → migrate to JUnit 5; Spring Boot 2.7.18 < 3.4 → upgrade Spring Boot; always append third-party dependency upgrade.
 
@@ -225,7 +247,7 @@ Output `terminal_command`:
 ```
 cd /home/user/projects/my-app && \
 echo "Ensure Java 21 is set as the active JDK before running this command" && \
-mvn -U org.openrewrite.maven:rewrite-maven-plugin:LATEST:run \
+mvn org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run \
   --define rewrite.recipeArtifactCoordinates=org.openrewrite.recipe:rewrite-migrate-java:RELEASE,org.openrewrite.recipe:rewrite-testing-frameworks:RELEASE,org.openrewrite.recipe:rewrite-spring:RELEASE \
   --define rewrite.activeRecipes=org.openrewrite.java.migrate.UpgradeToJava21,org.openrewrite.java.testing.junit5.JUnit4to5Migration,org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_4,org.openrewrite.maven.UpgradeDependencyVersion \
   --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
@@ -245,7 +267,7 @@ Output `terminal_command`:
 ```
 cd /home/user/projects/my-app && \
 echo "Ensure Java 21 is set as the active JDK before running this command" && \
-mvn -U org.openrewrite.maven:rewrite-maven-plugin:LATEST:run \
+mvn org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run \
   --define rewrite.recipeArtifactCoordinates=org.openrewrite.recipe:rewrite-migrate-java:RELEASE,org.openrewrite.recipe:rewrite-spring:RELEASE \
   --define rewrite.activeRecipes=org.openrewrite.java.migrate.UpgradeToJava21,org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_4,org.openrewrite.maven.UpgradeDependencyVersion \
   --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
@@ -288,7 +310,9 @@ Do not include any explanation or extra text outside the JSON object.
 
 - Never execute commands yourself.
 - Never modify files.
-- Always include the `cd <project_location> &&` prefix in `terminal_command`.
+- For Maven on Windows with `hasMavenWrapper: true`: use `& "<project_location>\mvnw.cmd"` with the full absolute path and the PowerShell call operator `&`. Do NOT use `cd`, bare `mvnw.cmd`, or `.\mvnw.cmd` — they fail when the working directory is not the project root.
+- For Maven on Windows with `hasMavenWrapper: false`: include `cd <project_location> &&` prefix and use `mvn`.
+- For Maven on Linux/macOS: always include the `cd <project_location> &&` prefix.
 - If `file_type` is `unknown` or null, set `terminal_command` to `null` and explain in `confirmation_message`.
 - If `command` is `apply openRewrite` and `file_type` is not `maven` or `gradle`, set `terminal_command` to `null` and `confirmation_message` to `ERROR: apply openReWrite is only supported for Maven and Gradle projects.`
 - If `command` is `apply openRewrite` and no metadata conditions match, set `terminal_command` to `null` and `confirmation_message` to `ERROR: No applicable OpenRewrite recipes found for the given metadata.`
