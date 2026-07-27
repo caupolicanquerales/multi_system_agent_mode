@@ -59,7 +59,7 @@ Field reference:
 
 For each defect:
 1. Resolve the full absolute path from `coordinates.filepath` and `coordinates.pathType`.
-2. Use `read_file` to read the file content around the defect location — read at minimum 10 lines before and after `coordinates.line` to gain enough context, and the full file if it is small (< 200 lines).
+2. Use `read_file` to read **only a targeted window** around the defect: lines `(coordinates.line - 15)` to `(coordinates.line + 15)`. Do **not** read the full file — even for small files. If `coordinates.line` is `null` (e.g. a project-level build misconfiguration with no line reference), read lines 1–80 as a fallback. Reading full files stores them in conversation history and costs 1,000–5,000 tokens per defect, compounding across every subsequent turn.
 
 ### Step 3 — Compute the fix
 
@@ -93,7 +93,7 @@ Use `replace_string_in_file` to apply the fix. This tool produces a diff view in
 
 Rules for applying the fix:
 - Use `replace_string_in_file` with `oldString` set to the exact original lines (including correct indentation) and `newString` set to the corrected lines.
-- Include at least 3 lines of unchanged context before and after the changed lines so the diff is unambiguous and the correct occurrence is targeted.
+- Include **1–2 lines** of unchanged context before and after the changed lines — enough to uniquely anchor the target occurrence without bloating the tool-call payload.
 - Never replace the entire file — always target the smallest possible `oldString`.
 - If multiple independent changes are needed for a single defect, apply them one at a time with separate `replace_string_in_file` calls.
 
@@ -107,12 +107,7 @@ message: |
   **[SEVERITY] <title>** — `<category>`
   <description>
 
-  File: `<filepath>` (line <line>)
-
-  The fix has been applied and is visible in the diff view.
-  Lines removed are shown in **red**, lines added in **green**.
-
-  Do you want to keep this change or undo it?
+  File: `<filepath>` · line <line>
 options:
   - label: "Keep"
     recommended: true

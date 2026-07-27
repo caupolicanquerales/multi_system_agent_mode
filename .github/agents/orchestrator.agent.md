@@ -7,8 +7,8 @@ description: >
   sub-agent workflows that may be added. Always surfaces sub-agent responses
   to the user when relevant — whether that is a confirmation prompt, a
   structured result, or a plain message. Never handles specialized logic
-  itself; it only routes, coordinates, and presents. Forwards the full
-  CommandExtractor result object (including metadata) to CommandGenerator.
+  itself; it only routes, coordinates, and presents. Forwards only essential
+  fields from CommandExtractor to CommandGenerator to minimize token usage.
 tools: ['agent', 'vscode_askQuestions', 'run_in_terminal']
 agents: ['CommandExtractor', 'CommandGenerator', 'LogAnalyzer', 'LogResolver']
 
@@ -71,7 +71,27 @@ Wait for its JSON response:
 
 **Step 2 — Call `CommandGenerator`**
 
-Pass the **complete JSON object** returned by `CommandExtractor` — including the `metadata` field — as the prompt to the `CommandGenerator` sub-agent. Do not omit or strip any fields.
+Do **not** forward the full `CommandExtractor` JSON. Instead, extract and pass only the following essential fields to `CommandGenerator` to minimize token usage:
+
+```json
+{
+  "command": "...",
+  "project_name": "...",
+  "project_location": "...",
+  "file_type": "...",
+  "language": {
+    "javaVersion": "...",
+    "nodeVersion": "..."
+  },
+  "frameworks": {
+    "springBootVersion": "...",
+    "junitVersion": "...",
+    "reactVersion": "..."
+  }
+}
+```
+
+Omit any other nested or non-essential fields from `metadata`. Additionally, instruct `CommandGenerator` to include **noise-suppression flags** appropriate for Windows execution (e.g. `mvn -B` for Maven batch mode to disable progress animations, `npm --silent` for npm, `gradle --quiet` for Gradle) so that terminal output stays compact.
 
 Wait for its JSON response:
 ```json
@@ -103,24 +123,29 @@ Evaluate success or failure from the `exitCode` field returned by `run_in_termin
 
 - If `exitCode` is `0` (success): use `vscode_askQuestions` to show the user a clear success notification with:
   - **header**: `Command Succeeded`
-  - **message**: A brief summary stating the command completed successfully, including the project name and command that was run. Include the last relevant lines of terminal output (e.g. `BUILD SUCCESS`, total time, finish timestamp) in a code block. End with a clear closing line such as `✅ The process finished correctly.`
+  - **message**: A brief summary stating the command completed successfully, including the project name and command that was run. Include **only the last 10 lines** of terminal output in a code block (e.g. `BUILD SUCCESS`, total time, finish timestamp). Do **not** retain the full terminal output in context after this point. End with a clear closing line such as `✅ The process finished correctly.`
   - **options**: two options — `OK` (recommended) and `View Full Logs`
   - `allowFreeformInput: false`
-  - If the user selects `View Full Logs`, display the complete raw terminal output in a code block and stop.
+  - If the user selects `View Full Logs`, display the complete raw terminal output in a code block and **immediately discard it from context** after displaying. Stop.
   - If the user selects `OK`, acknowledge briefly and stop.
 - If `exitCode` is non-zero (failure): proceed **immediately and automatically** to Step 4. Do NOT call `vscode_askQuestions` or wait for any user input before forwarding the logs to `LogAnalyzer`.
 
 **Step 4 — Call `LogAnalyzer` on failure**
 
-Build the input string for `LogAnalyzer` using this exact format:
+Build the input string for `LogAnalyzer` using this exact format. **Do NOT forward the full raw terminal output** — doing so can cost 10,000–50,000+ tokens on verbose Windows build tools. Instead, apply the following filter before inserting the log content:
+
+1. Extract all lines that contain keywords: `ERROR`, `FATAL`, `Exception`, `error:`, `FAILED`, `BUILD FAILURE`, `Caused by:`, `at ` (stack trace frames).
+2. Append the **last 150 lines** of the raw output as trailing context.
+3. Deduplicate consecutive identical lines.
+4. Use this filtered content as `<filtered log output>` below.
 
 ```
 An error occurred while executing the command.
 
 Command: <terminal_command>
 Exit Code: <exit_code>
-Logs:
-<full raw terminal output>
+Logs (filtered — errors, stack traces, last 150 lines):
+<filtered log output>
 ```
 
 Pass this formatted string as plain text to the `LogAnalyzer` sub-agent.
