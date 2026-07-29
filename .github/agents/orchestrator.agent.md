@@ -69,11 +69,13 @@ Resolve the **absolute path** of the target project folder before invoking the s
 Invoke the `FunctionalReporter` sub-agent with the following structured prompt:
 
 ```
-Generate a Java 21 refactoring report for the following project:
+Generate a migration report for the following project:
 
 Project name: <project_name>
 Project path: <absolute_path_to_project_root>
-Skill file: multi_system_agent_mode/.github/skills/java21-inspection-rules.md
+Skill files:
+  - multi_system_agent_mode/.github/skills/java21-inspection-rules.md
+  - multi_system_agent_mode/.github/skills/springboot3-inspection-rules.md
 ```
 
 Wait for `FunctionalReporter` to return a JSON response in the format:
@@ -143,13 +145,17 @@ If the user selects **Cancel**: acknowledge briefly and stop. Do NOT proceed to 
 Resolve the **absolute path** of the target project folder. Then invoke the `FunctionalExecuter` sub-agent with the following structured prompt:
 
 ```
-Apply the Java 21 refactoring plan for the following project:
+Apply the migration refactoring plan for the following project:
 
 Project name: <project_name>
 Project path: <absolute_path_to_project_root>
-Report file: <absolute_path_to_project_root>/JAVA21_REFACTORING_PLAN.md
-Skill file: multi_system_agent_mode/.github/skills/java21-inspection-rules.md
+Report file: <absolute_path_to_project_root>/<REPORT_FILE>.md
+Skill files:
+  - multi_system_agent_mode/.github/skills/java21-inspection-rules.md
+  - multi_system_agent_mode/.github/skills/springboot3-inspection-rules.md
 ```
+
+> Replace `<REPORT_FILE>` with the actual report filename from the FunctionalReporter response (`report_path` basename).
 
 Wait for `FunctionalExecuter` to return a JSON response in the format:
 ```json
