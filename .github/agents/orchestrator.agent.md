@@ -9,8 +9,20 @@ description: >
   structured result, or a plain message. Never handles specialized logic
   itself; it only routes, coordinates, and presents. Forwards only essential
   fields from CommandExtractor to CommandGenerator to minimize token usage.
-tools: ['agent', 'vscode_askQuestions', 'run_in_terminal']
-agents: ['CommandExtractor', 'CommandGenerator', 'LogAnalyzer', 'LogResolver']
+tools: ['agent', 'vscode_askQuestions', 'run_in_terminal', 'run_vscode_command']
+agents:
+  - path: command_agents/command_extractor.agent.md
+    name: CommandExtractor
+  - path: command_agents/command_generator.agent.md
+    name: CommandGenerator
+  - path: log_agents/log_analyzer.agent.md
+    name: LogAnalyzer
+  - path: log_agents/log_resolver.agent.md
+    name: LogResolver
+  - path: functional_report/functional_reporter.agent.md
+    name: FunctionalReporter
+  - path: functional_report/functional_executer.agent.md
+    name: FunctionalExecuter
 
 ---
 
@@ -32,7 +44,146 @@ New sub-agents and workflows can be added as new branches in the Decision Flow w
 
 ## Decision Flow
 
-### Case: User asks to perform any action on a specific project
+### Case: User requests a functional report on a project
+
+This case applies whenever the user asks to **inspect, analyze, or generate a report** on a named project in the context of Java 21 migration. Trigger keywords include (in any language):
+
+- `functional report`, `refactoring plan`, `migration report`, `java 21 report`
+- `analyze`, `inspect`, `scan`, `review` + a project name
+- `what needs to change`, `what can be modernized`, `java 21 changes`
+- Spanish equivalents: `reporte funcional`, `plan de refactorización`, `analiza`, `inspecciona`, `qué hay que cambiar`
+- Any phrasing that implies generating a written analysis of code changes needed to migrate to Java 21
+
+**Step 1 — Identify the target project**
+
+Extract the project name from the user's message. If the user has not specified a project name, ask:
+
+> "Which project should I generate the Java 21 refactoring report for?"
+
+Use `vscode_askQuestions` with the list of known workspace project folders as options.
+
+**Step 2 — Call `FunctionalReporter`**
+
+Resolve the **absolute path** of the target project folder before invoking the sub-agent. Use the workspace folder list to convert the project name to its full absolute path (e.g., `/home/capo/Escritorio/back-integration-vs/sub_agent_manager_integrate_vs`).
+
+Invoke the `FunctionalReporter` sub-agent with the following structured prompt:
+
+```
+Generate a Java 21 refactoring report for the following project:
+
+Project name: <project_name>
+Project path: <absolute_path_to_project_root>
+Skill file: multi_system_agent_mode/.github/skills/java21-inspection-rules.md
+```
+
+Wait for `FunctionalReporter` to return a JSON response in the format:
+```json
+{
+  "status": "success" | "failure",
+  "report_path": "<absolute_path>/JAVA21_REFACTORING_PLAN.md",
+  "files_scanned": <number>,
+  "total_findings": <number>,
+  "error": "<error message if status is failure>"
+}
+```
+
+**Step 3 — Notify the user**
+
+Evaluate the `status` field in the FunctionalReporter response:
+
+- If `status` is `"failure"`: use `vscode_askQuestions` to display the error:
+  - **header**: `Report Generation Failed`
+  - **message**: `Could not generate the Java 21 refactoring report for **<project_name>**. Reason: <error field value>.`
+  - **options**: `OK`
+  - `allowFreeformInput: false`
+  - Stop.
+
+- If `status` is `"success"`: use `vscode_askQuestions` to notify the user:
+  - **header**: `Functional Report Ready`
+  - **message**: `The Java 21 refactoring plan for **<project_name>** has been generated.\n\n- **Files scanned:** <files_scanned>\n- **Total findings:** <total_findings>\n- **Report location:** \`<report_path>\`\n\nOpen the file to review all findings, or apply all changes now.`
+  - **options**: `Apply Changes` (recommended), `Open Report`, `OK`
+  - `allowFreeformInput: false`
+
+  - If the user selects `Apply Changes`: proceed **immediately** to the **"Case: User requests to apply / implement the refactoring plan"** flow at Step 2 (skip the trigger-keyword matching — the project name and path are already known from this step). Pass `project_name` and `report_path` directly into that flow.
+  - If the user selects `Open Report`: call `run_vscode_command` with command `vscode.open` and the `report_path` URI. Stop.
+  - If the user selects `OK`: acknowledge briefly and stop.
+
+---
+
+### Case: User requests to apply / implement the refactoring plan on a project
+
+This case applies whenever the user asks to **apply, implement, or execute** the refactoring plan on a named project. Trigger keywords include (in any language):
+
+- `apply the plan`, `implement the plan`, `execute the refactoring`, `apply the refactoring`
+- `implementa el plan`, `aplica el reporte`, `ejecuta los cambios`, `aplica la refactorización`
+- `apply the java 21 changes`, `make the changes`, `do the refactoring`
+- Any phrasing that implies executing the changes described in an existing `JAVA21_REFACTORING_PLAN.md`
+
+**Step 1 — Identify the target project**
+
+Extract the project name from the user's message. If not specified, ask:
+
+> "Which project should I apply the Java 21 refactoring plan for?"
+
+Use `vscode_askQuestions` with the list of known workspace project folders as options.
+
+**Step 2 — Confirm with the user before applying**
+
+Use `vscode_askQuestions` to ask for confirmation before any code is modified:
+
+- **header**: `Apply Refactoring Plan`
+- **message**: `This will apply all findings from \`JAVA21_REFACTORING_PLAN.md\` to the source files of **<project_name>**. Changes will be made directly to the code. Do you want to proceed?`
+- **options**: `Apply Changes` (recommended), `Cancel`
+- `allowFreeformInput: false`
+
+If the user selects **Cancel**: acknowledge briefly and stop. Do NOT proceed to Step 3.
+
+**Step 3 — Call `FunctionalExecuter`**
+
+Resolve the **absolute path** of the target project folder. Then invoke the `FunctionalExecuter` sub-agent with the following structured prompt:
+
+```
+Apply the Java 21 refactoring plan for the following project:
+
+Project name: <project_name>
+Project path: <absolute_path_to_project_root>
+Report file: <absolute_path_to_project_root>/JAVA21_REFACTORING_PLAN.md
+Skill file: multi_system_agent_mode/.github/skills/java21-inspection-rules.md
+```
+
+Wait for `FunctionalExecuter` to return a JSON response in the format:
+```json
+{
+  "status": "success" | "failure",
+  "project_name": "<project_name>",
+  "total_findings": <number>,
+  "applied": <number>,
+  "skipped": <number>,
+  "failed": <number>,
+  "changed_files": ["<relative path>", "..."],
+  "cascade_warnings": ["<optional>"],
+  "error": "<error message if status is failure>"
+}
+```
+
+**Step 4 — Notify the user**
+
+Evaluate the `status` field in the FunctionalExecuter response:
+
+- If `status` is `"failure"`: use `vscode_askQuestions` to display the error:
+  - **header**: `Refactoring Failed`
+  - **message**: `Could not apply the refactoring plan for **<project_name>**. Reason: <error field value>.`
+  - **options**: `OK`
+  - `allowFreeformInput: false`
+  - Stop.
+
+- If `status` is `"success"`: use `vscode_askQuestions` to notify the user:
+  - **header**: `Refactoring Applied`
+  - **message**: `All changes from the Java 21 refactoring plan have been applied to **<project_name>**.\n\n- **Total findings in plan:** <total_findings>\n- **Applied:** <applied>\n- **Skipped (already done):** <skipped>\n- **Failed:** <failed>\n- **Modified files:**\n<list each file in changed_files as a bullet>\n\nReview the changes in the VS Code diff view and run the test suite to confirm correctness.`
+  - If `cascade_warnings` is non-empty, append to the message: `\n\n⚠️ **Cascade check required:**\n<list each warning as a bullet>\nThese classes were converted to records — verify that all calling code uses accessor methods (e.g., \`.field()\`) instead of getters (e.g., \`.getField()\`).`
+  - **options**: `OK` (recommended)
+  - `allowFreeformInput: false`
+  - Stop.
 
 This case applies whenever the user wants to **do something** on a named project — regardless of the language of the request (English, Spanish, or other) or the specific action. Examples include but are not limited to:
 
