@@ -56,45 +56,58 @@ Implementation order:
 1. Read `file_type`.
 2. Normalize only for matching: create a trimmed, lowercase copy of `command`.
 3. Keep the original `command` text unchanged for any final command that reuses raw goals/options.
-4. Build the shell command from the selected table/rules below.
+4. Build the shell command using `<mvn>`, `<prefix>`, or `<gradle>` from **Path Resolution** below.
+
+### Path Resolution
+
+Resolve `<mvn>`, `<prefix>`, and `<gradle>` once from this table. All sections reference these tokens.
+
+**Maven (`<mvn>` and `<prefix>`):**
+
+| OS | `hasMavenWrapper` | `<prefix>` | `<mvn>` |
+|---|---|---|---|
+| Windows | true | *(none)* | `& "<project_location>\mvnw.cmd"` |
+| Windows | false | `cd <project_location> &&` | `mvn` |
+| Linux/macOS | true | `cd <project_location> &&` | `./mvnw` |
+| Linux/macOS | false | `cd <project_location> &&` | `mvn` |
+
+> Windows wrapper: use the full absolute path with the PowerShell `&` call operator — never `cd` + bare `mvnw.cmd`.
+
+**Gradle (`<gradle>`):**
+
+| OS | `<gradle>` |
+|---|---|
+| Windows | `& "<project_location>\gradlew.bat"` *(full absolute path — no `cd`, `Set-Location`, or bare `gradlew`)* |
+| Linux/macOS | `cd <project_location> && ./gradlew` |
 
 Based on `file_type` and `command`, build the appropriate shell command:
 
 **Maven (`file_type: "maven"`):**
 
-Resolve the Maven executable first:
-- **Windows + `hasMavenWrapper: true`**: use `& "<project_location>\mvnw.cmd"` (full absolute path with PowerShell call operator — never `cd` + bare `mvnw.cmd`).
-- **Windows + `hasMavenWrapper: false`**: use `mvn`.
-- **Linux/macOS + `hasMavenWrapper: true`**: use `./mvnw` (after `cd <project_location>`).
-- **Linux/macOS + `hasMavenWrapper: false`**: use `mvn`.
-
-In the table below, `<mvn>` represents the resolved executable from the rules above.
-
-| command            | terminal command                                                      |
-|--------------------|-----------------------------------------------------------------------|
-| build              | `<mvn> clean package -DskipTests -B --no-transfer-progress`           |
-| test               | `<mvn> test -B --no-transfer-progress`                                |
-| run                | `<mvn> spring-boot:run -B --no-transfer-progress`                     |
-| package            | `<mvn> package -B --no-transfer-progress`                             |
-| install            | `<mvn> clean install -DskipTests -B --no-transfer-progress`           |
-| clean              | `<mvn> clean -B --no-transfer-progress`                               |
-| apply openReWrite  | *(see OpenRewrite section below)*                                     |
+| command            | terminal command                                                           |
+|--------------------|----------------------------------------------------------------------------|
+| build              | `<prefix> <mvn> clean package -DskipTests -B --no-transfer-progress`       |
+| test               | `<prefix> <mvn> test -B --no-transfer-progress`                            |
+| run                | `<prefix> <mvn> spring-boot:run -B --no-transfer-progress`                 |
+| package            | `<prefix> <mvn> package -B --no-transfer-progress`                         |
+| install            | `<prefix> <mvn> clean install -DskipTests -B --no-transfer-progress`       |
+| clean              | `<prefix> <mvn> clean -B --no-transfer-progress`                           |
+| apply openReWrite  | *(see OpenRewrite section below)*                                          |
 
 **Gradle (`file_type: "gradle"`):**
 
-Use `./gradlew` on Linux/macOS and `gradlew` (no `./`) on Windows.
-
-| command            | terminal command (Linux/macOS)                    | terminal command (Windows)                             |
-|--------------------|---------------------------------------------------|--------------------------------------------------------|
-| build              | `./gradlew clean build -x test --quiet`           | `.\gradlew.bat clean build -x test --quiet`            |
-| test               | `./gradlew test --quiet`                          | `.\gradlew.bat test --quiet`                           |
-| run                | `./gradlew bootRun`                               | `.\gradlew.bat bootRun`                                |
-| package            | `./gradlew build --quiet`                         | `.\gradlew.bat build --quiet`                          |
-| install            | `./gradlew build --quiet`                         | `.\gradlew.bat build --quiet`                          |
-| clean              | `./gradlew clean --quiet`                         | `.\gradlew.bat clean --quiet`                          |
-| apply openReWrite  | *(see OpenRewrite section below)*                 | *(see OpenRewrite section below)*                      |
+| command            | terminal command                              |
+|--------------------|-----------------------------------------------|
+| build              | `<gradle> clean build -x test --quiet`        |
+| test               | `<gradle> test --quiet`                       |
+| run                | `<gradle> bootRun`                            |
+| package            | `<gradle> build --quiet`                      |
+| install            | `<gradle> build --quiet`                      |
+| clean              | `<gradle> clean --quiet`                      |
+| apply openReWrite  | *(see OpenRewrite section below)*             |
 
 **npm (`file_type: "npm"`):**
+
 | command   | terminal command        |
 |-----------|-------------------------|
 | build     | `npm run build`         |
@@ -107,11 +120,10 @@ For commands not listed above, apply the normalization rules below.
 
 Additional normalization rules:
 - For matching only, trim whitespace and lowercase a copy of `command`.
-- If `file_type` is `maven` and `command` contains Maven goals (for example `clean install`, `verify`, `clean package -DskipTests`) but does not already start with a Maven executable token (`mvn`, `./mvnw`, `mvnw.cmd`), prepend the resolved `<mvn>` executable (from the wrapper rules above) to it. Additionally, if the resulting command does not already contain `test` as a standalone goal, `-DskipTests`, or `-Dmaven.test.skip`, append `-DskipTests` to skip tests by default.
-- If `file_type` is `maven` and `command` already starts with `mvn` or `./mvnw`, keep it unchanged but still apply the wrapper substitution for Windows when `hasMavenWrapper` is `true`.
-- **Maven noise suppression:** For every Maven command, always append `-B --no-transfer-progress` unless those flags are already present. `-B` enables batch mode (disables ANSI progress animations on Windows) and `--no-transfer-progress` suppresses the `Progress (1): X kB` artifact-download lines that can add 10,000–40,000 tokens to build output.
-- If `file_type` is `gradle` and `os` is `windows`: use the **full absolute path** to `gradlew.bat` with the PowerShell call operator `&`: `& "<project_location>\gradlew.bat"`. Never use `Set-Location`, `cd`, `./gradlew`, or bare `gradlew` — they fail in non-PowerShell terminal contexts or when the working directory is not the project root.
-- **Gradle noise suppression:** For every Gradle command **except `bootRun`**, always append `--quiet` unless already present. This suppresses task-execution banners (e.g. `> Task :compileJava`) and progress bars that produce high-token output on Windows. `bootRun` is intentionally excluded because its server startup logs are useful.
+- If `file_type` is `maven` and `command` contains Maven goals (for example `clean install`, `verify`, `clean package -DskipTests`) but does not already start with a Maven executable token (`mvn`, `./mvnw`, `mvnw.cmd`), prepend `<prefix> <mvn>`. If the result lacks a test skip flag (`test`, `-DskipTests`, `-Dmaven.test.skip`), append `-DskipTests`.
+- If `file_type` is `maven` and `command` already starts with `mvn` or `./mvnw`, keep it unchanged but still apply wrapper substitution on Windows.
+- **Maven noise suppression:** Always append `-B --no-transfer-progress` unless already present.
+- **Gradle noise suppression:** Always append `--quiet` to every Gradle command except `bootRun`.
 - If `file_type` is `gradle` and `os` is `linux` or `mac` and `command` already starts with `./gradlew` or `gradle`, keep it unchanged.
 - If `file_type` is `npm` and `command` already starts with `npm`, `npx`, or `pnpm`, keep it unchanged.
 - If `file_type` is `npm` and the command is not in the npm mapping table, use the raw command as-is.
@@ -119,96 +131,30 @@ Additional normalization rules:
 
 ### OpenRewrite command rules (when `command` is `apply openReWrite`)
 
-When `command` is `apply openRewrite` (case-insensitive), build the OpenRewrite command dynamically from the `metadata` field.
+**Scope:** Valid for `file_type: "maven"` and `file_type: "gradle"` only. For any other file type: `terminal_command: null`, `confirmation_message: "ERROR: apply openReWrite is only supported for Maven and Gradle projects."`
 
-**Scope:** `apply openReWrite` is valid for `file_type: "maven"` and `file_type: "gradle"`. For any other file type, set `terminal_command` to `null` and `confirmation_message` to `ERROR: apply openReWrite is only supported for Maven and Gradle projects.`
+Resolve `<mvn>`, `<prefix>`, and `<gradle>` from **Path Resolution** above. Build `<artifacts>` and `<recipes>` from the recipe selection table below.
 
-**For Maven (`file_type: "maven"`):**
+#### Maven command template
 
-**Pre-check:** Before generating the command, the target JDK (Java 21) must be active. Since this cannot be verified at generation time, always prepend the following warning to the command:
+Always prepend the JDK warning. Emit multi-line on Linux/macOS (using `\` continuation) and single-line on Windows.
+
 ```
-echo "Ensure Java 21 is set as the active JDK before running this command" &&
-```
-
-The full command structure uses a pinned plugin version and `--define` instead of `-D` to prevent parsing failures across different Maven wrappers or shells. Avoid `-U` (force-update flag) since it always fetches `maven-metadata.xml` from remote, causing HTTP 401 failures in corporate Artifactory environments.
-
-Resolve the Maven executable the same way as the standard Maven commands (see **Maven executable resolution** above):
-- **Windows + `hasMavenWrapper: true`**: use `& "<project_location>\mvnw.cmd"` — no `cd` prefix needed.
-- **Windows + `hasMavenWrapper: false`**: use `mvn` prefixed by `cd <project_location> &&`.
-- **Linux/macOS + `hasMavenWrapper: true`**: use `./mvnw` prefixed by `cd <project_location> &&`.
-- **Linux/macOS + `hasMavenWrapper: false`**: use `mvn` prefixed by `cd <project_location> &&`.
-
-**On Linux/macOS** use backslash (`\`) line continuation for readability:
-```
-cd <project_location> && \
-echo "Ensure Java 21 is set as the active JDK before running this command" && \
+<prefix> echo "Ensure Java 21 is set as the active JDK before running this command" && \
 <mvn> org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress \
-  --define rewrite.recipeArtifactCoordinates=<artifacts> \
-  --define rewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion \
-  --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
+  -Drewrite.recipeArtifactCoordinates=<artifacts> \
+  -Drewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion \
+  -Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
 ```
 
-**On Windows with wrapper (`hasMavenWrapper: true`)** emit as a single line using the full wrapper path (no `cd`):
-```
-echo "Ensure Java 21 is set as the active JDK before running this command" ; & "<project_location>\mvnw.cmd" org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress --define rewrite.recipeArtifactCoordinates=<artifacts> --define rewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
-```
+- **Windows with wrapper:** single line; replace `\` continuations with spaces; use `;` before the `&` call: `echo "..." ; & "<project_location>\mvnw.cmd" org.openrewrite.maven:...`.
+- **Windows without wrapper:** single line with `cd <project_location> && echo "..." && mvn org.openrewrite.maven:...`.
 
-**On Windows without wrapper (`hasMavenWrapper: false`)** emit as a single line with `cd` prefix:
-```
-cd <project_location> && echo "Ensure Java 21 is set as the active JDK before running this command" && mvn org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress --define rewrite.recipeArtifactCoordinates=<artifacts> --define rewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
-```
+#### Gradle init script template
 
-Recipe selection from `metadata`:
+Define the Groovy init script body once (interpolate `<rewriteDeps>` and `<activeRecipes>`):
 
-| Condition | `rewrite.recipeArtifactCoordinates` addition | `rewrite.activeRecipes` addition |
-|---|---|---|
-| `metadata.language.javaVersion` is present AND numeric value < 21 | `org.openrewrite.recipe:rewrite-migrate-java:RELEASE` | `org.openrewrite.java.migrate.UpgradeToJava21` |
-| `metadata.frameworks.junitVersion` is present AND major version is 4 (value equals `"4"` OR starts with `"4."`) | `org.openrewrite.recipe:rewrite-testing-frameworks:RELEASE` | `org.openrewrite.java.testing.junit5.JUnit4to5Migration` |
-| `metadata.frameworks.springBootVersion` is present AND version is older than `3.4.x` (i.e. major < 3, or major = 3 and minor < 4) | `org.openrewrite.recipe:rewrite-spring:RELEASE` | `org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_4` |
-| Any recipe above is active | *(no extra artifact — uses the rewrite-maven-plugin directly)* | Always append `org.openrewrite.maven.UpgradeDependencyVersion` at the end |
-
-Collection rules:
-- Collect ALL matching artifact coordinates into `--define rewrite.recipeArtifactCoordinates=<comma-separated>`.
-- Collect ALL matching active recipes into `--define rewrite.activeRecipes=<comma-separated>`, always appending `org.openrewrite.maven.UpgradeDependencyVersion` last when any other recipe is active.
-- **Deduplicate** artifact coordinates — if the same artifact appears for multiple matching recipes, include it only once.
-- Always add `--define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST`.
-
-Full example with all recipes active:
-```bash
-cd /home/user/projects/my-app && \
-echo "Ensure Java 21 is set as the active JDK before running this command" && \
-mvn org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run \
-  --define rewrite.recipeArtifactCoordinates=org.openrewrite.recipe:rewrite-migrate-java:RELEASE,org.openrewrite.recipe:rewrite-testing-frameworks:RELEASE,org.openrewrite.recipe:rewrite-spring:RELEASE \
-  --define rewrite.activeRecipes=org.openrewrite.java.migrate.UpgradeToJava21,org.openrewrite.java.testing.junit5.JUnit4to5Migration,org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_4,org.openrewrite.maven.UpgradeDependencyVersion \
-  --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
-```
-
-If no `metadata` field is present or none of the conditions match, set `terminal_command` to `null` and `confirmation_message` to `ERROR: No applicable OpenRewrite recipes found for the given metadata.`
-
-**For Gradle (`file_type: "gradle"`):**
-
-For Gradle, OpenRewrite is applied via a temporary Gradle init script created at runtime — this avoids permanently modifying `build.gradle`.
-
-Apply the **same recipe selection logic** from the table above (Java version, Spring Boot version, JUnit version) to determine which recipes and artifact coordinates to include.
-
-If no `metadata` field is present or none of the conditions match, set `terminal_command` to `null` and `confirmation_message` to `ERROR: No applicable OpenRewrite recipes found for the given metadata.`
-
-Build the `rewriteDeps` string as a list of `rewrite 'ARTIFACT:+'` entries (one per matching artifact), and the `activeRecipes` string as a list of `activeRecipe('RECIPE_NAME')` entries (one per matching recipe, always appending `'org.openrewrite.gradle.tooling.UpgradeDependencyVersion'` last).
-
-**On Windows (PowerShell)** — emit as a single line using `` `n `` for real newlines inside the Groovy init script (Groovy requires newlines between top-level blocks — semicolons are not valid block separators at script scope):
-```
-$f="$env:TEMP\orewrite-init.gradle"; [System.IO.File]::WriteAllText($f, "initscript {`n  repositories { gradlePluginPortal(); mavenCentral() }`n  dependencies { classpath 'org.openrewrite:plugin:+' }`n}`ndef pluginClass = initscript.classLoader.loadClass('org.openrewrite.gradle.RewritePlugin')`ndef runningJava = org.gradle.api.JavaVersion.current().majorVersion.toInteger()`nallprojects {`n  afterEvaluate { proj ->`n    if (proj.extensions.findByName('java')) {`n      proj.java.toolchain.languageVersion = org.gradle.jvm.toolchain.JavaLanguageVersion.of(runningJava)`n    }`n    if (proj.tasks.findByName('rewriteRun')) { proj.tasks.named('rewriteRun').configure { it.dependsOn = [] } }`n  }`n  apply plugin: pluginClass`n  dependencies { <rewriteDeps> }`n  rewrite { <activeRecipes> }`n}"); & "<project_location>\gradlew.bat" rewriteRun --quiet --init-script $f
-```
-
-> **Critical rules for Windows:**
-> - Do NOT use `Set-Location` or `cd` — they are unavailable in some terminal contexts. Use the full absolute path to `gradlew.bat` with the `&` call operator instead.
-> - Use `[System.IO.File]::WriteAllText()` with `` `n `` escape sequences — NOT `Set-Content` with a flat string.
-> - The init script uses `org.gradle.api.JavaVersion.current().majorVersion.toInteger()` to detect the JVM already running Gradle and overrides the project toolchain via `afterEvaluate`. This avoids passing `JAVA_HOME` paths on the command line (which break when paths contain spaces).
-
-**On Linux/macOS** — emit as a multi-line command using `\` continuation:
-```
-cd <project_location> && \
-cat > /tmp/orewrite-init.gradle << 'EOF'
+```groovy
 initscript {
   repositories { gradlePluginPortal(); mavenCentral() }
   dependencies { classpath 'org.openrewrite:plugin:+' }
@@ -226,71 +172,49 @@ allprojects {
   dependencies { <rewriteDeps> }
   rewrite { <activeRecipes> }
 }
+```
+
+- `<rewriteDeps>`: one `rewrite 'org.openrewrite.recipe:ARTIFACT:+'` per matching artifact, space-separated.
+- `<activeRecipes>`: one `activeRecipe('RECIPE')` per matching recipe, appending `activeRecipe('org.openrewrite.gradle.tooling.UpgradeDependencyVersion')` last.
+
+**Emit on Linux/macOS:**
+```
+cd <project_location> && \
+cat > /tmp/orewrite-init.gradle << 'EOF'
+<groovy_body_with_interpolated_rewriteDeps_and_activeRecipes>
 EOF
 ./gradlew rewriteRun --quiet --init-script /tmp/orewrite-init.gradle
 ```
 
-Full Windows example with Java 17 → 21 and Spring Boot 3.2 → 3.4 recipes active:
+**Emit on Windows (PowerShell):** Serialize the body as a single-quoted string with `` `n `` line separators. Use `[System.IO.File]::WriteAllText()` — NOT `Set-Content`. Full absolute `gradlew.bat` path with `&`:
 ```
-$f="$env:TEMP\orewrite-init.gradle"; [System.IO.File]::WriteAllText($f, "initscript {`n  repositories { gradlePluginPortal(); mavenCentral() }`n  dependencies { classpath 'org.openrewrite:plugin:+' }`n}`ndef pluginClass = initscript.classLoader.loadClass('org.openrewrite.gradle.RewritePlugin')`ndef runningJava = org.gradle.api.JavaVersion.current().majorVersion.toInteger()`nallprojects {`n  afterEvaluate { proj ->`n    if (proj.extensions.findByName('java')) {`n      proj.java.toolchain.languageVersion = org.gradle.jvm.toolchain.JavaLanguageVersion.of(runningJava)`n    }`n    if (proj.tasks.findByName('rewriteRun')) { proj.tasks.named('rewriteRun').configure { it.dependsOn = [] } }`n  }`n  apply plugin: pluginClass`n  dependencies { rewrite 'org.openrewrite.recipe:rewrite-migrate-java:+'; rewrite 'org.openrewrite.recipe:rewrite-spring:+' }`n  rewrite { activeRecipe('org.openrewrite.java.migrate.UpgradeToJava21'); activeRecipe('org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_4') }`n}"); & "c:\Users\user\projects\pruebaJava17\gradlew.bat" rewriteRun --quiet --init-script $f
-```
-
-#### OpenRewrite examples
-
-**Example 1 — All three recipes apply**
-
-Input metadata:
-```json
-{ "javaVersion": "11", "springBootVersion": "2.7.18", "junitVersion": "4.13.2" }
-```
-Applied rules: Java 11 < 21 → upgrade Java; JUnit 4 → migrate to JUnit 5; Spring Boot 2.7.18 < 3.4 → upgrade Spring Boot; always append third-party dependency upgrade.
-
-Output `terminal_command`:
-```
-cd /home/user/projects/my-app && \
-echo "Ensure Java 21 is set as the active JDK before running this command" && \
-mvn org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress \
-  --define rewrite.recipeArtifactCoordinates=org.openrewrite.recipe:rewrite-migrate-java:RELEASE,org.openrewrite.recipe:rewrite-testing-frameworks:RELEASE,org.openrewrite.recipe:rewrite-spring:RELEASE \
-  --define rewrite.activeRecipes=org.openrewrite.java.migrate.UpgradeToJava21,org.openrewrite.java.testing.junit5.JUnit4to5Migration,org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_4,org.openrewrite.maven.UpgradeDependencyVersion \
-  --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
+$f="$env:TEMP\orewrite-init.gradle"; [System.IO.File]::WriteAllText($f, "<groovy_body_with_`n_newlines>"); & "<project_location>\gradlew.bat" rewriteRun --quiet --init-script $f
 ```
 
----
+#### Recipe selection
 
-**Example 2 — Java and Spring Boot only (JUnit 5 already in use)**
+All artifact coordinates use the prefix `org.openrewrite.recipe:`. Deduplicate artifacts across rows.
 
-Input metadata:
-```json
-{ "javaVersion": "17", "springBootVersion": "3.2.0", "junitVersion": "5" }
-```
-Applied rules: Java 17 < 21 → upgrade Java; JUnit 5 → no migration needed; Spring Boot 3.2.0 < 3.4 → upgrade Spring Boot; always append third-party dependency upgrade.
+| Condition | `<artifacts>` addition | `<recipes>` addition |
+|---|---|---|
+| `javaVersion` present AND < 21 | `rewrite-migrate-java:RELEASE` | `org.openrewrite.java.migrate.UpgradeToJava21` |
+| `junitVersion` present AND starts with `"4"` | `rewrite-testing-frameworks:RELEASE` | `org.openrewrite.java.testing.junit5.JUnit4to5Migration` |
+| `springBootVersion` present AND < 3.4.x (major < 3, or major = 3 and minor < 4) | `rewrite-spring:RELEASE` | `org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_4` |
+| (`springBootVersion` present AND major < 3) OR (`springBootVersion` absent AND `javaVersion` present AND < 11) | `rewrite-migrate-java:RELEASE` *(dedup)* | `org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta` |
+| `javaVersion` present AND < 21 | `rewrite-logging-frameworks:RELEASE`, `rewrite-apache:RELEASE` | `org.openrewrite.java.logging.slf4j.Log4jToSlf4j`, `org.openrewrite.apache.commons.lang.ApacheCommonsLang2ToCommonsLang3`, `org.openrewrite.apache.commons.collections.ApacheCommonsCollections3To4` |
+| Any recipe active | *(none)* | Append `org.openrewrite.maven.UpgradeDependencyVersion` (Maven) or `org.openrewrite.gradle.tooling.UpgradeDependencyVersion` (Gradle) last |
 
-Output `terminal_command`:
-```
-cd /home/user/projects/my-app && \
-echo "Ensure Java 21 is set as the active JDK before running this command" && \
-mvn org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress \
-  --define rewrite.recipeArtifactCoordinates=org.openrewrite.recipe:rewrite-migrate-java:RELEASE,org.openrewrite.recipe:rewrite-spring:RELEASE \
-  --define rewrite.activeRecipes=org.openrewrite.java.migrate.UpgradeToJava21,org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_4,org.openrewrite.maven.UpgradeDependencyVersion \
-  --define rewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST
-```
+Collection rules: collect all matching artifact coordinates (comma-separated, deduplicated) and all matching recipes (comma-separated). Always include `-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST`.
 
----
+If no conditions match: `terminal_command: null`, `confirmation_message: "ERROR: No applicable OpenRewrite recipes found for the given metadata."`
 
-**Example 3 — Gradle project (Java 17 + Spring Boot 4.0.7)**
+#### Quick reference examples
 
-Input:
-```json
-{ "file_type": "gradle", "command": "apply openReWrite", "os": "windows", "metadata": { "language": { "javaVersion": "17" }, "frameworks": { "springBootVersion": "4.0.7" } } }
-```
-Applied rules: Java 17 < 21 → upgrade Java; Spring Boot 4.0.7 ≥ 3.4 → no Spring Boot upgrade needed; always append dependency upgrade.
-
-Output `terminal_command`:
-```
-$f="$env:TEMP\orewrite-init.gradle"; [System.IO.File]::WriteAllText($f, "initscript {`n  repositories { gradlePluginPortal(); mavenCentral() }`n  dependencies { classpath 'org.openrewrite:plugin:+' }`n}`ndef pluginClass = initscript.classLoader.loadClass('org.openrewrite.gradle.RewritePlugin')`ndef runningJava = org.gradle.api.JavaVersion.current().majorVersion.toInteger()`nallprojects {`n  afterEvaluate { proj ->`n    if (proj.extensions.findByName('java')) {`n      proj.java.toolchain.languageVersion = org.gradle.jvm.toolchain.JavaLanguageVersion.of(runningJava)`n    }`n    if (proj.tasks.findByName('rewriteRun')) { proj.tasks.named('rewriteRun').configure { it.dependsOn = [] } }`n  }`n  apply plugin: pluginClass`n  dependencies { rewrite 'org.openrewrite.recipe:rewrite-migrate-java:+' }`n  rewrite { activeRecipe('org.openrewrite.java.migrate.UpgradeToJava21') }`n}"); & "c:\Users\user\projects\pruebaJava17\gradlew.bat" rewriteRun --quiet --init-script $f
-```
-
-The full command to execute must be prefixed with `cd <project_location> &&` so it runs in the correct directory.
+| # | Key metadata | file_type | os | Recipes triggered |
+|---|---|---|---|---|
+| 1 | Java 11, Spring Boot 2.7.18, JUnit 4.13.2 | maven | linux | UpgradeToJava21, JUnit4to5Migration, UpgradeSpringBoot_3_4, JavaxMigrationToJakarta, Log4jToSlf4j, ApacheCommonsLang2ToCommonsLang3, ApacheCommonsCollections3To4 |
+| 2 | Java 17, Spring Boot 3.2.0, JUnit 5 | maven | linux | UpgradeToJava21, UpgradeSpringBoot_3_4, Log4jToSlf4j, ApacheCommonsLang2ToCommonsLang3, ApacheCommonsCollections3To4 *(no Jakarta: Spring Boot major = 3)* |
+| 3 | Java 17, Spring Boot 4.0.7 | gradle | windows | UpgradeToJava21, Log4jToSlf4j, ApacheCommonsLang2ToCommonsLang3, ApacheCommonsCollections3To4 *(no Spring Boot upgrade: >= 3.4; no Jakarta: major >= 3)* |
 
 ### Step 2 — Return structured result to the orchestrator
 
@@ -310,14 +234,12 @@ Do not include any explanation or extra text outside the JSON object.
 
 ## Rules
 
-- Never execute commands yourself.
-- Never modify files.
-- **Noise suppression (Windows):** Always include `-B --no-transfer-progress` in every Maven command. Always include `--quiet` in every Gradle command except `bootRun`. These flags prevent Maven progress animations and Gradle task banners from inflating terminal output by 10,000–40,000 tokens on Windows builds.
-- For Maven on Windows with `hasMavenWrapper: true`: use `& "<project_location>\mvnw.cmd"` with the full absolute path and the PowerShell call operator `&`. Do NOT use `cd`, bare `mvnw.cmd`, or `.\mvnw.cmd` — they fail when the working directory is not the project root.
-- For Maven on Windows with `hasMavenWrapper: false`: include `cd <project_location> &&` prefix and use `mvn`.
-- For Maven on Linux/macOS: always include the `cd <project_location> &&` prefix.
-- If `file_type` is `unknown` or null, set `terminal_command` to `null` and explain in `confirmation_message`.
-- If `command` is `apply openRewrite` and `file_type` is not `maven` or `gradle`, set `terminal_command` to `null` and `confirmation_message` to `ERROR: apply openReWrite is only supported for Maven and Gradle projects.`
-- If `command` is `apply openRewrite` and no metadata conditions match, set `terminal_command` to `null` and `confirmation_message` to `ERROR: No applicable OpenRewrite recipes found for the given metadata.`
+- Never execute commands yourself. Never modify files.
+- **Maven noise suppression:** Always include `-B --no-transfer-progress` in every Maven command.
+- **Gradle noise suppression:** Always include `--quiet` in every Gradle command except `bootRun`.
+- For all path resolution (Maven wrapper, Gradle executable, `cd` prefix): see the **Path Resolution** table in Instructions.
+- `file_type` unknown/null → `terminal_command: null`.
+- `apply openReWrite` on non-maven/gradle → `terminal_command: null`, `confirmation_message: "ERROR: apply openReWrite is only supported for Maven and Gradle projects."`
+- `apply openReWrite` with no matching metadata → `terminal_command: null`, `confirmation_message: "ERROR: No applicable OpenRewrite recipes found for the given metadata."`
 - Keep `display_label` concise and human-friendly.
-- The `metadata` field is used only for command generation logic; do not include it in the output JSON.
+- `metadata` is for logic only — do not include it in the output JSON.

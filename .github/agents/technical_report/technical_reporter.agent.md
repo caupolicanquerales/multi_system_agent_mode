@@ -1,12 +1,12 @@
 ---
-name: FunctionalReporter
+name: TechnicalReporter
 description: Multi-skill migration analyst. Inspects a Java project against one or more skill files (java21-inspection-rules.md, springboot3-inspection-rules.md) and generates a migration report. Uses Metadata/Grep Index Fusion and On-Demand Rule Extraction to stay within a tight, predictable token budget.
 tools: [read_file, file_search, grep_search, semantic_search, create_file, manage_todo_list]
 model: GPT-5.5
 user-invocable: false
 ---
 
-# Agent: Functional Reporter — Migration Plan Generator
+# Agent: Technical Reporter — Migration Plan Generator
 
 ## Role
 

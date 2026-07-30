@@ -19,10 +19,10 @@ agents:
     name: LogAnalyzer
   - path: log_agents/log_resolver.agent.md
     name: LogResolver
-  - path: functional_report/functional_reporter.agent.md
-    name: FunctionalReporter
-  - path: functional_report/functional_executer.agent.md
-    name: FunctionalExecuter
+  - path: technical_report/technical_reporter.agent.md
+    name: TechnicalReporter
+  - path: technical_report/technical_executer.agent.md
+    name: TechnicalExecuter
 
 ---
 
@@ -62,11 +62,11 @@ Extract the project name from the user's message. If the user has not specified 
 
 Use `vscode_askQuestions` with the list of known workspace project folders as options.
 
-**Step 2 — Call `FunctionalReporter`**
+**Step 2 — Call `TechnicalReporter`**
 
 Resolve the **absolute path** of the target project folder before invoking the sub-agent. Use the workspace folder list to convert the project name to its full absolute path (e.g., `/home/capo/Escritorio/back-integration-vs/sub_agent_manager_integrate_vs`).
 
-Invoke the `FunctionalReporter` sub-agent with the following structured prompt:
+Invoke the `TechnicalReporter` sub-agent with the following structured prompt:
 
 ```
 Generate a migration report for the following project:
@@ -78,7 +78,7 @@ Skill files:
   - multi_system_agent_mode/.github/skills/springboot3-inspection-rules.md
 ```
 
-Wait for `FunctionalReporter` to return a JSON response in the format:
+Wait for `TechnicalReporter` to return a JSON response in the format:
 ```json
 {
   "status": "success" | "failure",
@@ -91,7 +91,7 @@ Wait for `FunctionalReporter` to return a JSON response in the format:
 
 **Step 3 — Notify the user**
 
-Evaluate the `status` field in the FunctionalReporter response:
+Evaluate the `status` field in the TechnicalReporter response:
 
 - If `status` is `"failure"`: use `vscode_askQuestions` to display the error:
   - **header**: `Report Generation Failed`
@@ -140,9 +140,9 @@ Use `vscode_askQuestions` to ask for confirmation before any code is modified:
 
 If the user selects **Cancel**: acknowledge briefly and stop. Do NOT proceed to Step 3.
 
-**Step 3 — Call `FunctionalExecuter`**
+**Step 3 — Call `TechnicalExecuter`**
 
-Resolve the **absolute path** of the target project folder. Then invoke the `FunctionalExecuter` sub-agent with the following structured prompt:
+Resolve the **absolute path** of the target project folder. Then invoke the `TechnicalExecuter` sub-agent with the following structured prompt:
 
 ```
 Apply the migration refactoring plan for the following project:
@@ -155,9 +155,9 @@ Skill files:
   - multi_system_agent_mode/.github/skills/springboot3-inspection-rules.md
 ```
 
-> Replace `<REPORT_FILE>` with the actual report filename from the FunctionalReporter response (`report_path` basename).
+> Replace `<REPORT_FILE>` with the actual report filename from the TechnicalReporter response (`report_path` basename).
 
-Wait for `FunctionalExecuter` to return a JSON response in the format:
+Wait for `TechnicalExecuter` to return a JSON response in the format:
 ```json
 {
   "status": "success" | "failure",
@@ -174,7 +174,7 @@ Wait for `FunctionalExecuter` to return a JSON response in the format:
 
 **Step 4 — Notify the user**
 
-Evaluate the `status` field in the FunctionalExecuter response:
+Evaluate the `status` field in the TechnicalExecuter response:
 
 - If `status` is `"failure"`: use `vscode_askQuestions` to display the error:
   - **header**: `Refactoring Failed`

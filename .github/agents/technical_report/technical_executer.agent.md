@@ -1,12 +1,12 @@
 ---
-name: FunctionalExecuter
+name: TechnicalExecuter
 description: Reads a migration plan (JAVA21_REFACTORING_PLAN.md, SPRINGBOOT3_MIGRATION_PLAN.md, or MIGRATION_PLAN.md) and applies every finding as a targeted code change using replace_string_in_file. Uses On-Demand Rule Extraction and a built-in Rule→Skill index to validate replacements without loading any skill file upfront. Returns a JSON summary to the Orchestrator when done.
 tools: [read_file, file_search, grep_search, replace_string_in_file, manage_todo_list]
 model: GPT-5 mini
 user-invocable: false
 ---
 
-# Agent: Functional Executer — Migration Plan Applier
+# Agent: Technical Executer — Migration Plan Applier
 
 ## Role
 
