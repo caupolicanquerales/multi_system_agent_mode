@@ -1,10 +1,8 @@
 name: CommandExtractor
 description: Reads the user prompt to extract the command being requested and the project name. Then searches the workspace for the project — excluding heavy artifact directories (target/, node_modules/, build/, .gradle/, .git/, dist/) — locating its pom.xml, package.json, or Gradle build files. Uses targeted grep_search queries instead of reading full build files to extract only the version metadata lines needed, avoiding the 5,000–15,000 token cost of reading entire enterprise build files. Detects the user's operating system. Returns to the orchestrator the extracted command, project identity and location, file type, os, and metadata.
 tools: ['file_search', 'grep_search', 'read_file', 'list_dir']
-model: gpt-4o-mini
+model: GPT-5 mini
 user-invocable: false
-
----
 
 ## Role
 
@@ -18,7 +16,7 @@ Read the user prompt carefully and identify:
 - **command**: The exact command or action the user is requesting (e.g., `build`, `test`, `run`, `package`, `install`, `apply openRewrite`).
 - **project name**: The name of the project the user is referring to.
 - **os**: The operating system of the user's machine. Detect it using the following rules:
-  - Check the `os` context variable or any environment hint provided in the conversation (e.g., VS Code sets `process.platform`).
+  - Check the `os` context variable or any environment hint provided in the conversation.
   - If the user mentions Windows, or path separators use `\`, or the prompt contains drive letters (e.g., `C:\`), set `os` to `windows`.
   - If the user mentions macOS or Mac, set `os` to `mac`.
   - If the user mentions Linux, or paths use `/` with no drive letter, set `os` to `linux`.
@@ -29,53 +27,40 @@ Migration/OpenRewrite intent rule:
 
 ### Step 2 — Locate the project in the workspace
 
-Using the extracted project name, search the workspace to find the project directory:
-1. Use `file_search` to look for `pom.xml`, `package.json`, `build.gradle`, or `build.gradle.kts` files whose path contains the project name. **Ignore any result whose path contains one of these heavy artifact directories:** `node_modules/`, `target/`, `build/`, `.gradle/`, `.git/`, `dist/`, `bin/`, `.mvn/` — they add no signal and inflate tool output with thousands of irrelevant paths.
-2. If no exact match is found, use `grep_search` to search for the project name inside `pom.xml` (in `<artifactId>`) or `package.json` (in `"name"` field). Apply the same directory exclusion list.
-3. Determine the **project location** as the directory that contains the found file.
-4. Determine the **file type**:
-  - If `pom.xml` is found → type is `maven`
-  - If `package.json` is found → type is `npm`
-  - If `build.gradle` or `build.gradle.kts` is found → type is `gradle`
-  - If project directory is found but none of the supported files are found → type is `unknown`
-5. Detect build wrappers:
-  - If `file_type` is `maven`: use `list_dir` on `project_location` only (shallow — do **not** recurse into subdirectories) to check whether `mvnw.cmd` (Windows) or `mvnw` (Linux/macOS) exists. Set `hasMavenWrapper` to `true` if found, `false` otherwise.
+**Fast-path (always try first):** Construct direct glob patterns from the project name and call all four `file_search` queries **in parallel** in a single turn:
 
-OpenRewrite project applicability rule:
+```
+**/<project_name>/pom.xml
+**/<project_name>/build.gradle.kts
+**/<project_name>/build.gradle
+**/<project_name>/package.json
+```
+
+Use the first result that is **not** inside a heavy artifact directory: `node_modules/`, `target/`, `build/`, `.gradle/`, `.git/`, `dist/`, `bin/`, `.mvn/`.
+
+**Fallback (only if all four fast-path searches return no usable result):** Run a single `grep_search` with `isRegexp: false` searching for the project name inside `<artifactId>` tags (pom.xml) or `"name"` field (package.json). Apply the same directory exclusion list.
+
+> ⛔ Do NOT run the fallback before the fast-path. Do NOT make sequential `file_search` calls — issue all four in parallel.
+
+Once the build file is found:
+3. Determine the **project location** as the directory that contains the found file.
+4. Determine the **file type** from the build file found:
+   - `pom.xml` → `maven`
+   - `package.json` → `npm`
+   - `build.gradle` or `build.gradle.kts` → `gradle`
+   - Project directory found but none of the above → `unknown`
+
+OpenRewrite applicability rule:
 - If command is `apply openRewrite` and both Maven and Gradle indicators are absent for the chosen project, keep command as extracted but set `file_type` to `unknown`.
 
 ### Step 3 — Inspect build files and extract metadata
 
-After locating the project and file type, inspect the matching build file(s) and extract version metadata.
+Load the skill matching the detected `file_type` and follow it exactly to extract version metadata:
 
-Metadata shape:
-- `metadata.language`: object with detected language/runtime versions.
-- `metadata.frameworks`: object with detected frameworks and versions.
-
-Extraction rules by file type — always use `grep_search` with a targeted regex pattern and `includePattern` set to the specific file path. **Never call `read_file` on a full build file.** Large enterprise `pom.xml` files can be 1,000–5,000+ lines and cost 5,000–15,000 tokens to read entirely. Use the minimum number of `grep_search` calls needed:
-
-- `maven` (`pom.xml`):
-  - **Language:** One `grep_search`, `isRegexp: true`, pattern `java\.version|maven\.compiler\.source|maven\.compiler\.target|maven\.compiler\.release`, `includePattern` = path to the `pom.xml`. Extract the Java version from the first matching value.
-  - **Spring Boot:** One `grep_search`, pattern `spring-boot\.version|spring-boot-starter-parent|<spring-boot`, `includePattern` = path to the `pom.xml`. Extract the Spring Boot version from the match.
-  - **JUnit:** One `grep_search`, `isRegexp: true`, pattern `junit`, `includePattern` = path to the `pom.xml`. If any returned line already contains a `<version>` tag (e.g. Gradle inline `'junit:junit:4.13.2'`), extract the version directly from that line. If the returned lines only contain `<groupId>` or `<artifactId>` tags (Maven XML format where `<version>` lives on a separate line), note the **line number** of the `<artifactId>junit</artifactId>` match and call `read_file` with `startLine` = that line number and `endLine` = that line number + 4 to retrieve the adjacent `<version>` tag. Set `junitVersion` to the exact version string found (e.g. `"4.13.2"`).
-  - Batch independent patterns into a single call using `|` whenever they target the same file.
-
-- `gradle` (`build.gradle` or `build.gradle.kts`):
-  - **Language:** One `grep_search`, `isRegexp: true`, pattern `sourceCompatibility|targetCompatibility|languageVersion|javaVersion`, `includePattern` = path to the Gradle file.
-  - **Spring Boot:** One `grep_search`, pattern `spring-boot|springBootVersion|id.*spring-boot`, `includePattern` = path to the Gradle file.
-  - **JUnit:** One `grep_search`, pattern `junit`, `includePattern` = path to the Gradle file.
-  - Batch independent patterns into a single call using `|` whenever they target the same file.
-
-- `npm` (`package.json`):
-  - One `grep_search`, `isRegexp: true`, pattern `"engines"|"react"|"@angular/core"|"vue"|"next"|"@nestjs/core"|"express"|"node"`, `includePattern` = path to the `package.json`. Extract all relevant version values from the returned lines. Do **not** call `read_file` on the full file.
-
-- `unknown`:
-  - Return empty metadata objects.
-
-Normalization rules:
-- If a version cannot be determined, omit that key.
-- Return plain version strings exactly as found (do not transform ranges).
-- Include only values confidently found in files.
+- **`file_type: "maven"`** → load [command-extractor-mvn](.github/skills/command-extractor-mvn/SKILL.md)
+- **`file_type: "gradle"`** → load [command-extractor-gradle](.github/skills/command-extractor-gradle/SKILL.md)
+- **`file_type: "npm"`** → load [command-extractor-npm](.github/skills/command-extractor-npm/SKILL.md)
+- **`file_type: "unknown"`** → return empty metadata objects.
 
 ### Step 4 — Return structured result to the orchestrator
 
@@ -96,6 +81,8 @@ Return ONLY a JSON object with the following fields:
     },
     "frameworks": {
       "springBootVersion": "<string, when found>",
+      "springFrameworkVersion": "<string, when found — plain Spring Framework projects only, absent when springBootVersion is present>",
+      "javaxServletVersion": "<string or 'present', when found — set when javax.servlet / servlet-api dependency is detected>",
       "junitVersion": "<string, when found>",
       "reactVersion": "<string, when found>",
       "angularVersion": "<string, when found>",

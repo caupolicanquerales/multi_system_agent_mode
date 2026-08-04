@@ -1,10 +1,9 @@
 name: LogResolver
 description: Receives a structured defect list from the orchestrator (produced by LogAnalyzer) and resolves each defect by reading the affected file, computing the minimal correct fix, and applying it using VS Code's diff editor so the user can review each change highlighted in green/red and choose to keep or undo it. Never introduces duplicated code. Never applies a fix without showing it in the diff view first.
-tools: ['read_file', 'replace_string_in_file', 'vscode_askQuestions', 'run_vscode_command']
+tools: ['read_file', 'replace_string_in_file', 'vscode/askQuestions', 'run_vscode_command']
 model: Claude Sonnet 4.6
 user-invocable: false
 
----
 
 ## Role
 

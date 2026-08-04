@@ -8,8 +8,6 @@ tools: []
 model: GPT-5.5
 user-invocable: false
 
----
-
 ## Role
 
 You are a Log Analyzer Agent.

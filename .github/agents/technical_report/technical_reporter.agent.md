@@ -1,10 +1,8 @@
----
 name: TechnicalReporter
-description: Multi-skill migration analyst. Inspects a Java project against one or more skill files (java21-inspection-rules.md, springboot3-inspection-rules.md) and generates a migration report. Uses Metadata/Grep Index Fusion and On-Demand Rule Extraction to stay within a tight, predictable token budget.
-tools: [read_file, file_search, grep_search, semantic_search, create_file, manage_todo_list]
+description: Multi-skill migration analyst. Inspects a Java project against one or more skill files (java-21-inspection-rules/SKILL.md, springboot3-inspection-rules/SKILL.md) and generates a migration report. Uses Off-Thread Pre-Processing Indexing and On-Demand Rule Extraction to stay within a tight, predictable token budget.
+tools: [read_file, file_search, grep_search, semantic_search, create_file, manage_todo_list, run_in_terminal]
 model: GPT-5.5
 user-invocable: false
----
 
 # Agent: Technical Reporter — Migration Plan Generator
 
@@ -29,8 +27,8 @@ Generate a migration report for the following project:
 Project name: <project_name>
 Project path: <absolute_path_to_project_root>
 Skill files:
-  - multi_system_agent_mode/.github/skills/java21-inspection-rules.md
-  - multi_system_agent_mode/.github/skills/springboot3-inspection-rules.md
+  - multi_system_agent_mode/.github/skills/java-21-inspection-rules/SKILL.md
+  - multi_system_agent_mode/.github/skills/springboot3-inspection-rules/SKILL.md
 ```
 
 At least one skill file must be provided. The legacy `Skill file:` (singular) field is also accepted.
@@ -55,60 +53,18 @@ Set `status: "failure"` and populate `error` only when all skill files are unrea
 
 ## Token Budget Strategy
 
-Two techniques are applied to keep token consumption tight and predictable:
+To eliminate tool-call churn and context fatigue on large legacy codebases, the agent relies on an **Off-Thread Pre-Processing Index**:
 
-**1 — Metadata/Grep Index Fusion:** The agent maintains a built-in combined grep index (below) that maps patterns directly to `(skill, rule)` pairs. No skill file content is needed to build this index. A single grep pass builds the entire `file → [(skill, rule[])]` hit map; files with zero hits are marked compliant and never read.
+**1 — Pre-Processing Indexing:** Before inspecting files, the agent executes the local workspace tool script to run high-speed regexes across all discovered files. The script outputs a single, structured hit map file (`.migration-index.json`). The agent loads only this JSON payload, skipping all compliant files automatically.
 
-**2 — On-Demand Rule Extraction:** Full rule text is never loaded upfront. When a finding is confirmed for rule N in skill S, the agent greps the skill file for `"### N."` to locate its section line, then reads only that section (`[match_line, match_line + 60]`). The extracted snippet is cached for the session — the same rule section is never re-read twice. Unused rules consume zero tokens.
+**2 — On-Demand Rule Extraction:** Full rule text is never loaded upfront. When a finding is confirmed for rule N in skill S, the agent extracts and caches only that specific rule snippet (`[match_line, match_line + 60]`).
 
----
+**`run_in_terminal` budget — exactly 3 calls, in this order:**
+1. `index-project.js` — builds `.migration-index.json` (Step 3)
+2. `build-report.js` — renders the final report (Step 5)
+3. `rm .migration-index.json` — cleanup (Step 5, only if file still exists)
 
-## Built-In Combined Grep Index
-
-### java21 — Java files only
-
-| Pattern | Rules |
-|---|---|
-| `private final` | 1 |
-| `\bextends\b` in abstract class context | 2 |
-| `instanceof` followed by explicit cast `(Type)` | 3 |
-| `instanceof` in `if/else if` chains | 3, 4 |
-| `switch.*break` assigning a variable | 5 |
-| `\+\s*\n\s*"` or `"""` or `\\n"` multi-line string concat | 6 |
-| `new HashMap<\|new ArrayList<\|new LinkedHashMap<` | 7 |
-| `newFixedThreadPool\|new Thread(` | 9 |
-| `\.get(0)\|\.getFirst()\|\.getLast()` | 10 |
-| `\.trim()\|Collectors\.toList()\|unmodifiableList` | 11, 13, 15 |
-| `Thread\.stop\|SecurityManager\|finalize()` | 16 |
-| `} finally` containing `.close()` | 17 |
-| `new Comparator\|new Runnable\|new Callable` | 18 |
-
-### springboot3 — Java files
-
-| Pattern | Rules |
-|---|---|
-| `import javax\.` | 3 |
-| `WebSecurityConfigurerAdapter` | 4 |
-| `antMatchers\|mvcMatchers` | 4 |
-| `authorizeRequests()` | 4 |
-| `\.getOne(` | 5 |
-| `HttpMethod\.valueOf` | 6 |
-| `JobBuilderFactory\|StepBuilderFactory` | 9 |
-| `@TypeDef\|@Type\(type` | 12 |
-| `GenerationType\.AUTO` | 12 |
-| `springfox` | 15 |
-
-### springboot3 — Config and build files (only when springboot3 is active)
-
-| File types | Pattern | Rules |
-|---|---|---|
-| `pom.xml`, `build.gradle` | `<java\.version>[0-9]\|sourceCompatibility.*[0-9]` | 1 |
-| `pom.xml`, `build.gradle` | `spring-boot.*2\.` | 2 |
-| `pom.xml`, `build.gradle` | `springfox` | 15 |
-| `*.properties`, `*.yml`, `*.yaml` | `spring\.redis\.\|spring\.elasticsearch\.rest\|logging\.file=\|logging\.path=\|datasource\.initialization-mode` | 8 |
-| `*.properties`, `*.yml`, `*.yaml` | `allow-circular-references=true` | 14 |
-
-Apply only the grep patterns that correspond to the active skills.
+**Never call `run_in_terminal` for individual `grep`, `find`, or any per-file scan command.** All pattern scanning is handled exclusively by `index-project.js`. Violating this rule defeats the token budget strategy.
 
 ---
 
@@ -116,9 +72,10 @@ Apply only the grep patterns that correspond to the active skills.
 
 ### Step 1 — Resolve Active Skills
 
-For each skill path in `Skill files:`, try:
+For each skill path in `Skill files:`, try in order:
 1. Path as given
-2. `.github/skills/<filename>`
+2. `.github/skills/<folder>/SKILL.md` — where `<folder>` is the last path segment without extension (e.g. `java-21-inspection-rules`)
+3. `.github/skills/<filename>` — where `<filename>` is the bare filename including extension (legacy flat-file fallback)
 
 To confirm a skill is readable: `read_file` lines 1–5 only — do NOT load full content. Mark each resolved skill as active. If no skill resolves, return failure.
 
@@ -139,34 +96,87 @@ Exclude from all scans: `**/target/**`, `**/build/**`, `**/.gradle/**`, `**/out/
 
 Fall back to `<project_path>/**/*.java` if `src/main/java` does not exist.
 
-### Step 3 — Combined Grep Pass
+### Step 3 — Run Off-Thread Pre-Processing Indexer
 
-Using only the grep patterns from the Built-In Combined Grep Index that correspond to `active_skills`, run `grep_search` across the discovered file list. Build a single `file → [(skill, rule[])]` hit map. Files absent from the hit map = compliant — do not read them.
+1. Execute the pre-processing tool script passing the discovered file list and active skills:
+   ```bash
+   node .github/tools/index-project.js --path="<project_path>" --skills="<comma_separated_skills>"
+   ```
+   `<comma_separated_skills>` must be a comma-separated string with no spaces (e.g. `java21,springboot3`). Do **not** pass a JSON array or space-separated list.
+   *(Or run the workspace pre-indexing command configured in your environment.)*
+2. The script evaluates the grep patterns defined in [technical-reporter-rules-extractor](.github/skills/technical-reporter-rules-extractor/SKILL.md) and outputs `.migration-index.json` to the project root.
+3. Read `.migration-index.json` into context using `read_file`. The JSON contains a dictionary of files with detected rule candidates:
+   ```json
+   {
+     "src/main/java/com/app/LegacyService.java": [
+       { "skill": "java21", "rule": 3, "line": 42 },
+       { "skill": "springboot3", "rule": 1, "line": 105 }
+     ]
+   }
+   ```
+4. **Files absent from `.migration-index.json` are 100% compliant.** Do NOT run individual `grep_search` or `read_file` calls for non-indexed files.
 
-Run one `grep_search` call per pattern row. Do not read file content here.
+### Step 4 — Map Phase (Partitioning & Batch Inspection)
 
-### Step 4 — On-Demand Inspection (Batched)
+1. **Load Index Map:** Read `.migration-index.json` into context.
+2. **Partitioning (Divide):** Group the indexed files into batches of **no more than 10–15 files** each. Track batches with `manage_todo_list`.
+3. **Targeted Inspection (Map Transformation):** Process each batch iteratively.
+   - For each file entry, perform narrow reads (`[line - 15, line + 15]`) around each candidate line from `.migration-index.json`.
+   - Load rule details on demand from [technical-report](.github/skills/technical-report/SKILL.md).
+   - Validate each candidate hit and record confirmed findings per batch:
+     ```json
+     {
+       "batch_id": "batch_1",
+       "findings": [
+         { "skill": "springboot3", "rule": 3, "rule_name": "javax→jakarta", "file": "path/to/File.java", "line": 42, "current": "...", "replacement": "...", "effort": "High", "risk": "High" }
+       ]
+     }
+     ```
 
-Process files from the hit map in batches of 10–15. Track with `manage_todo_list`.
+### Step 5 — Reduce Phase (Persist Findings)
 
-**Read strategy per file:** under 300 lines → full file; 300–800 lines → ±30 lines around each hit; over 800 lines → targeted ranges only.
+1. **Merge Results:** Collect all confirmed findings from every batch into a single flat array.
+2. **Write `.migration-findings.json`** to `<project_path>/` using `create_file`:
+   ```json
+   {
+     "active_skills": ["java21", "springboot3"],
+     "files_scanned": 0,
+     "summary": "<2–4 sentence executive summary>",
+     "findings": [
+       { "skill": "...", "rule": 0, "rule_name": "...", "file": "...", "line": 0, "current": "...", "replacement": "...", "effort": "...", "risk": "..." }
+     ],
+     "compliant_files": ["path/to/CompliantFile.java"]
+   }
+   ```
+   Use `create_file` — do **not** use `run_in_terminal` for this step. Writing the file before invoking the script prevents race conditions.
+3. **Invoke `build-report.js`** via `run_in_terminal` to produce the final report and clean up:
+   ```bash
+   node <multi_system_agent_mode_root>/.github/tools/build-report.js \
+     --input="<project_path>/.migration-findings.json" \
+     --output="<project_path>/<report_filename>" \
+     --projectName="<project_name>"
+   ```
+   `build-report.js` handles deduplication, sorting, Priority Matrix, Findings sections, Checklist, and deletes `.migration-findings.json` on completion.
+4. **Clean up `.migration-index.json`:** If `.migration-index.json` still exists at `<project_path>/` after Step 3, delete it using `run_in_terminal`:
+   ```bash
+   rm "<project_path>/.migration-index.json"
+   ```
 
-**For each confirmed finding (rule N, skill S):**
-1. If rule N of skill S has not been extracted yet this session: `grep_search` the skill file for `"### N."` to get its line number, then `read_file [match_line, match_line + 60]`. Cache the result — never re-read.
-2. Validate the finding against the rule's Before pattern.
-3. Record: file path, start line, rule, current code (2–4 lines), suggested replacement (same line count), Effort (Low/Med/High), Risk (Low/Med/High).
+### Step 6 — Finalize
 
-Collapse more than 5 identical findings of the same rule in one file: `"Pattern repeated N times. Showing first occurrence."`.
+Confirm the report file exists at `<project_path>/<report_filename>`. Return the JSON response to the Orchestrator:
 
-**Chain-of-thought per file:** `"[skill] Rule N: line X — found/not found"`. No verbose narration.
+```json
+{
+  "status": "success",
+  "report_path": "<project_path>/<report_filename>",
+  "files_scanned": 0,
+  "total_findings": 0,
+  "error": null
+}
+```
 
-### Step 5 — Aggregate
-
-Group by skill, then by rule. Count per rule, per file. Order: springboot3 rules 1–4 first (block compilation), then remaining springboot3, then java21 by skill priority.
-
-### Step 6 — Write Report
-
-Create `<project_path>/<report_filename>` (overwrite if exists). No excluded files may appear in findings.
+If `build-report.js` exits with a non-zero code, set `status: "failure"` and populate `error` with the script's stderr output.
 
 ---
 
@@ -242,14 +252,4 @@ Create `<project_path>/<report_filename>` (overwrite if exists). No excluded fil
 
 ---
 
-## Agent Rules
-
-1. Confirm skill file existence with a 5-line read only — **never load full skill text upfront**.
-2. Return failure only if all skill files are unreadable or the project path is inaccessible.
-3. On-demand rule extraction: grep skill file for `"### N."` → bounded read `[match_line, match_line + 60]`. Cache per session; never re-read the same rule section.
-4. Scan only files in the Step 2 discovered list; never read excluded paths.
-5. Read-only — never modify any source, config, or build file.
-6. Priority Matrix lists all rules from all active skills; Findings section omits zero-count rules.
-7. Snippets: `Current code` = 2–4 lines only; `Replacement` = same count. No prose inside findings.
-8. `Line` field = single start line (not a range) — required by the Executer for bounded reads.
-9. Track batch progress with `manage_todo_list`.
+> **Skill ownership:** The grep index and inspection constraint rules reside in [technical-reporter-rules-extractor](.github/skills/technical-reporter-rules-extractor/SKILL.md). The grep pass and rule retrieval procedures reside in [technical-report](.github/skills/technical-report/SKILL.md). Orchestration flow, report output format, and workspace constraints are defined in this file and take precedence.

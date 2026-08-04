@@ -1,3 +1,9 @@
+---
+name: java-21-inspection-rules
+description: "Defines all inspection and modernization rules an agent must apply when migrating Java code to Java 21. Covers Records, Sealed Classes, Pattern Matching, Switch Expressions, Text Blocks, and more."
+user-invocable: false
+---
+
 # Skill: Java 21 Code Inspection & Modernization Guidelines
 
 ## Purpose

@@ -1,3 +1,9 @@
+---
+name: springboot3-inspection-rules
+description: "Defines all inspection and migration rules an agent must apply when migrating a Spring Boot 2.x project to Spring Boot 3.x. Covers Jakarta EE namespace migration, Security, JPA, Batch, and configuration property changes."
+user-invocable: false
+---
+
 # Skill: Spring Boot 2.x to 3.x Migration Inspection Rules
 
 ## Purpose
