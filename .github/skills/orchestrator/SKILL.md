@@ -25,6 +25,7 @@ user-invocable: false
 - **Call run_in_terminal exactly once per workflow -- for the main command only.** Never call it a second time to verify output, check for generated files, or inspect the file system. The exitCode from the first call is the sole signal for success or failure.
 - **Use run_in_terminal to open files in VS Code** (e.g. code <path>) instead of vscode/runCommand.
 - **Do not add a vscode_askQuestions confirmation before calling run_in_terminal.** The native VS Code security dialog is the single confirmation gate.
+- **Never display the `terminal_command` field to the user** — not before, not after calling run_in_terminal. Only surface the `confirmation_message` returned by CommandGenerator. Displaying the full command wastes tokens and is not actionable for the user.
 - **Never append output-piping operators (`| tail`, `| head`, `| grep`, `2>&1 | ...`) to `terminal_command`.** Piping buffers all output until the process exits, making long-running commands (OpenRewrite, Maven builds, etc.) appear stuck with no live feedback. Run `terminal_command` exactly as returned by CommandGenerator — unmodified.
 
 ## CommandGenerator Forwarding Rules

@@ -10,20 +10,20 @@ user-invocable: false
 
 Use this lookup table (check `apply openReWrite` rows first):
 
-| command            | file_type         | Action                                                                                  |
-|--------------------|-------------------|-----------------------------------------------------------------------------------------|
-| `apply openReWrite`| `maven`           | Load [open-re-write](.github/skills/open-re-write/SKILL.md) and build command          |
-| `apply openReWrite`| `gradle`          | Load [open-re-write-gradle](.github/skills/open-re-write-gradle/SKILL.md) and build command |
-| `apply openReWrite`| other / null      | `terminal_command: null`, `confirmation_message: "ERROR: apply openReWrite is only supported for Maven and Gradle projects."` |
-| any                | `maven`           | Load [command-generator-mvn](.github/skills/command-generator-mvn/SKILL.md)            |
-| any                | `gradle`          | Load [command-generator-gradle](.github/skills/command-generator-gradle/SKILL.md)      |
-| any                | `npm`             | Load [command-generator-npm](.github/skills/command-generator-npm/SKILL.md)            |
-| any                | `unknown` / null  | `terminal_command: null`                                                                |
+| command            | file_type         | `os`                     | Action                                                                                          |
+|--------------------|-------------------|--------------------------|-------------------------------------------------------------------------------------------------|
+| `apply openReWrite`| `maven`           | `windows`                | Load [open-re-write-mvn-win](.github/skills/open-re-write-mvn-win/SKILL.md) and build command  |
+| `apply openReWrite`| `maven`           | `linux` / `mac` / null   | Load [open-re-write-mvn-nix](.github/skills/open-re-write-mvn-nix/SKILL.md) and build command  |
+| `apply openReWrite`| `gradle`          | any                      | Load [open-re-write-gradle](.github/skills/open-re-write-gradle/SKILL.md) and build command    |
+| `apply openReWrite`| other / null      | any                      | `terminal_command: null`, `confirmation_message: "ERROR: apply openReWrite is only supported for Maven and Gradle projects."` |
+| any                | `maven`           | any                      | Load [command-generator-mvn](.github/skills/command-generator-mvn/SKILL.md)                    |
+| any                | `gradle`          | any                      | Load [command-generator-gradle](.github/skills/command-generator-gradle/SKILL.md)              |
+| any                | `npm`             | any                      | Load [command-generator-npm](.github/skills/command-generator-npm/SKILL.md)                    |
+| any                | `unknown` / null  | any                      | `terminal_command: null`                                                                        |
 
 If `apply openReWrite` skill returns no matching recipes → `terminal_command: null`, `confirmation_message: "ERROR: No applicable OpenRewrite recipes found for the given metadata."`
 
-Use `os` to adapt command syntax (path separators, wrapper scripts). Default `linux` if absent.
-Use `hasMavenWrapper` (boolean) to decide `mvnw` vs `mvn`.
+Default `os` to `linux` if absent. Use `hasMavenWrapper` (boolean) to decide `mvnw` vs `mvn`.
 
 ### Step 2 — Return JSON
 

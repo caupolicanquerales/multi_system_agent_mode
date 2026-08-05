@@ -1,6 +1,6 @@
 ---
-name: open-re-write
-description: "Use when the command is `apply openReWrite` and file_type is `maven`. Contains the OpenRewrite Maven command template, recipe selection conditions, and collection rules for building automated Maven migration commands."
+name: open-re-write-mvn-nix
+description: "Use when the command is `apply openReWrite`, file_type is `maven`, and os is Linux or macOS. Contains the OpenRewrite Maven command template (Linux/macOS heredoc), recipe selection conditions, and collection rules for building automated Maven migration commands."
 user-invocable: false
 ---
 
@@ -23,7 +23,7 @@ Resolve `<mvn>` and `<prefix>` from [general-command-rules](.github/skills/gener
 | `a.commons` | `org.openrewrite.apache.commons` |
 | `mvnR` | `org.openrewrite.maven` |
 
-Expand aliases to full FQCNs when building the final command. All artifact coordinates use the prefix `org.openrewrite.recipe:`. Deduplicate across rows.
+Expand to full FQCNs. Artifact coord prefix: `org.openrewrite.recipe:`. Deduplicate.
 
 ## Recipe Selection
 
@@ -50,7 +50,7 @@ Collect all matching artifacts (comma-separated, deduplicated) into `<artifacts>
 
 ## YAML Config Block
 
-Label this block `<YAML_BLOCK>`. Write it to `/tmp/rewrite-custom.yml` (Linux) or `$env:TEMP\rewrite-custom.yml` (Windows) and pass via `-Drewrite.configLocation`. `ChangeDependency` and `RemoveDependency` are built-in core recipes — no extra `recipeArtifactCoordinates` needed. All entries are no-ops when the targeted dependency is absent.
+`ChangeDependency` and `RemoveDependency` are built-in core recipes — no extra `recipeArtifactCoordinates` needed. All entries are no-ops when the targeted dependency is absent.
 
 ```yaml
 ---
@@ -87,9 +87,7 @@ Append a "Manual Steps Required" section to `confirmation_message` for each matc
 
 ## Maven Command Template
 
-Prepend the JDK warning. Linux/macOS: multi-line with `\`. Windows: single-line PowerShell.
-
-**Linux/macOS** — inline `<YAML_BLOCK>` literally inside the heredoc:
+Inline `<YAML_BLOCK>` literally inside the heredoc:
 ```
 <prefix> cat > /tmp/rewrite-custom.yml << 'EOF'
 <YAML_BLOCK>
@@ -98,34 +96,11 @@ echo "Ensure Java 21 is set as the active JDK before running this command" && \
 <mvn> org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress \
   -Drewrite.configLocation=/tmp/rewrite-custom.yml \
   -Drewrite.recipeArtifactCoordinates=<artifacts> \
-  -Drewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion,com.custom.openrewrite.MigrateLegacyDependencies \
+  -Drewrite.activeRecipes=<recipes> \
   -Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.groupId=* \
   -Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.artifactId=* \
   -Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST \
   -Dmaven.compiler.failOnError=false
 ```
-
-**Windows** — serialize `<YAML_BLOCK>` using a single-quoted PowerShell Here-String (`@'...'@`). This guarantees multi-line formatting without variable expansion or escape sequence issues. Write using `[System.IO.File]::WriteAllText()`. Target shell is `powershell.exe` or `pwsh.exe` — do NOT generate these commands if the VS Code terminal is `cmd.exe`.
-
-*With wrapper:*
-```powershell
-$yml = @'
-<YAML_BLOCK>
-'@; [System.IO.File]::WriteAllText("$env:TEMP\rewrite-custom.yml", $yml); Write-Host 'Ensure Java 21 is set as the active JDK before running this command' ; & '<project_location>\mvnw.cmd' org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress "-Drewrite.configLocation=$env:TEMP\rewrite-custom.yml" "-Drewrite.recipeArtifactCoordinates=<artifacts>" "-Drewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion,com.custom.openrewrite.MigrateLegacyDependencies" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.groupId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.artifactId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST"
-```
-
-*Without wrapper:*
-```powershell
-$yml = @'
-<YAML_BLOCK>
-'@; [System.IO.File]::WriteAllText("$env:TEMP\rewrite-custom.yml", $yml); Set-Location '<project_location>' ; Write-Host 'Ensure Java 21 is set as the active JDK before running this command' ; mvn org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress "-Drewrite.configLocation=$env:TEMP\rewrite-custom.yml" "-Drewrite.recipeArtifactCoordinates=<artifacts>" "-Drewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion,com.custom.openrewrite.MigrateLegacyDependencies" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.groupId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.artifactId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST"
-```
-
-**Windows serialization rules for `<YAML_BLOCK>`:**
-- Format the YAML block inside a single-quoted Here-String (`@'` on its own opening line, `'@` on its own closing line).
-- Preserve literal line breaks inside `@' ... '@`. Do NOT inject backtick escapes (`` `n ``).
-- Standard ASCII spaces (`\u0020`) ONLY — strip/replace non-breaking spaces (`\u00A0`).
-- Parameters containing commas (`-Drewrite.recipeArtifactCoordinates=`, `-Drewrite.activeRecipes=`) and wildcard parameters (`-Drewrite.options...groupId=*`, `...artifactId=*`) MUST be wrapped in double quotes.
-- Target shell is `powershell.exe` or `pwsh.exe` — do NOT generate these commands if the VS Code terminal is `cmd.exe`.
 
 

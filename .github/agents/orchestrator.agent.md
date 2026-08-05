@@ -24,6 +24,8 @@ Load [orchestrator-rules](.github/skills/orchestrator/SKILL.md) at the start of 
 ⛔ Never call `file_search`, `grep_search`, or `read_file` on project files yourself.
 ⛔ Never load any skill file under `.github/skills/` yourself.
 ⛔ Never construct or modify a terminal command yourself.
+⛔ Never execute secondary terminal commands (e.g. `Get-Content`, `type`, `echo %ERRORLEVEL%`) to check exit status or inspect terminal logs.
+⛔ Never use CMD.exe syntax (`2>nul`, `%ERRORLEVEL%`) on Windows; all terminal actions on Windows must target PowerShell (`$LASTEXITCODE`).
 ⛔ Never present a sub-agent's intermediate JSON to the user — surface only final results.
 ⛔ Never hand off to the default Copilot assistant or any other chat agent.
 ⛔ Never call the `Explore` agent or any agent not listed in the `agents:` section of this file.
@@ -114,13 +116,16 @@ Forward only the essential fields per the forwarding rules in the orchestrator-r
 
 Display `terminal_command` in a code block. Call `run_in_terminal` (mode: sync, timeout: 300000) using `confirmation_message` as explanation and `display_label` as goal.
 
-- `exitCode 0` → follow the success notification rule in the orchestrator-rules skill.
-- Non-zero `exitCode` → **Step 4**.
+Evaluate the execution result strictly from the `run_in_terminal` return object:
+- If `exitCode == 0` → follow the success notification rule in the orchestrator-rules skill. Stop.
+- If `exitCode != 0` (or if execution failed) → proceed immediately to **Step 4**.
+
+⛔ Do NOT execute any terminal commands (`type`, `cat`, `Get-Content`) or ask for extra terminal permissions to check if the command succeeded.
 
 **Step 4 — LogAnalyzer**
 
-⛔ Do NOT analyze the log output yourself. Do NOT identify defects, categorize errors, or propose fixes yourself.
-Apply the log filtering algorithm from the orchestrator-rules skill. Pass the formatted string to LogAnalyzer using the `agent` tool with `name: LogAnalyzer`. Await:
+⛔ Do NOT analyze log output yourself or issue terminal commands to read logs.
+Read the terminal log buffer using tool `read_file` ONCE. Pass the formatted string to LogAnalyzer using the `agent` tool with `name: LogAnalyzer`. Await:
 `{ totalDefectsFound, defects: [{ id, severity, category, title, description, coordinates }] }`.
 
 If `totalDefectsFound == 0`: inform user, stop.
