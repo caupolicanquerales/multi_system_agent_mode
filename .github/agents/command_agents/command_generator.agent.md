@@ -53,7 +53,9 @@ The `hasMavenWrapper` field (boolean) indicates whether a `mvnw.cmd` / `mvnw` wr
 
 Read `file_type` and `command` from the input. Use `file_type` as the primary selector, then load the matching skill:
 
-- **If `command` is `apply openReWrite`**: load [open-re-write](.github/skills/open-re-write/SKILL.md) and follow it exactly to build the terminal command using `metadata`.
+- **If `command` is `apply openReWrite` AND `file_type` is `maven`**: load [open-re-write](.github/skills/open-re-write/SKILL.md) and follow it exactly to build the terminal command using `metadata`.
+- **If `command` is `apply openReWrite` AND `file_type` is `gradle`**: load [open-re-write-gradle](.github/skills/open-re-write-gradle/SKILL.md) and follow it exactly to build the terminal command using `metadata`.
+- **If `command` is `apply openReWrite` AND `file_type` is neither `maven` nor `gradle`**: set `terminal_command: null`, `confirmation_message: "ERROR: apply openReWrite is only supported for Maven and Gradle projects."`
 - **If `file_type` is `maven`**: load [command-generator-mvn](.github/skills/command-generator-mvn/SKILL.md) and follow it exactly.
 - **If `file_type` is `gradle`**: load [command-generator-gradle](.github/skills/command-generator-gradle/SKILL.md) and follow it exactly.
 - **If `file_type` is `npm`**: load [command-generator-npm](.github/skills/command-generator-npm/SKILL.md) and follow it exactly.
