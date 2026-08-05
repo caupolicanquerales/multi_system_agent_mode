@@ -101,7 +101,7 @@ Use the `agent` tool with `name: CommandExtractor`. Pass the raw user prompt as-
 ⛔ Do NOT call `Explore`, `file_search`, `grep_search`, `read_file`, or any other tool or agent while waiting for CommandExtractor.
 ⛔ Do NOT analyze whether CommandExtractor can handle the request — always call it unconditionally.
 ⛔ Wait passively. Your only permitted action is to receive CommandExtractor's response:
-`{ command, project_name, project_location, file_type, os, hasMavenWrapper, metadata: { language, frameworks } }`
+`{ command, project_name, project_location, file_type, os, hasMavenWrapper, metadata }`
 
 ⛔ Do NOT present this JSON to the user. Proceed immediately and automatically to Step 2 — no pause, no intermediate output.
 

@@ -33,10 +33,9 @@ user-invocable: false
 Do **not** forward the full CommandExtractor JSON to CommandGenerator. Extract and pass only these essential fields:
 
 - command, project_name, project_location, file_type, os, hasMavenWrapper
-- metadata.language: javaVersion, nodeVersion
-- metadata.frameworks: springBootVersion, springFrameworkVersion, javaxServletVersion, junitVersion, reactVersion, angularVersion, vueVersion, nextVersion, nestjsVersion, expressVersion
+- From `metadata` (flat): javaVersion, nodeVersion, springBootVersion, springFrameworkVersion, javaxServletVersion, junitVersion, reactVersion, angularVersion, vueVersion, nextVersion, nestjsVersion, expressVersion
 
-Omit any other nested or non-essential fields.
+Omit any other non-essential fields.
 
 ## Sub-Agent Sequential Execution Rules
 

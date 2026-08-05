@@ -35,17 +35,19 @@ From the found file:
 
 ### Step 3 — Extract metadata
 
-⛔ **Token Guardrail:** Do NOT read entire build files. Use targeted `read_file` ranges:
-- First pass: lines 1–100 (captures `<parent>`, `<properties>`, early `<dependencies>`)
-- Second pass (only if a required field is still missing): lines 100–250 (remaining `<dependencies>`)
-- Stop as soon as all required fields are found.
+⛔ **Token Guardrail:** Use targeted `read_file` ranges:
+- First pass: lines 1–150 (captures `<properties>`, `<parent>`, early dependencies)
+- Second pass (only if required fields are still missing or unresolved): lines 150–350
+- Stop as soon as all required fields are identified.
 
-**maven (`pom.xml`)** — extract:
-- `javaVersion`: value of `<java.version>` or `<maven.compiler.source>`
+**Property Resolution Rule (Maven):** If a version reference uses a property placeholder (e.g., `${spring.version}` or `${junit.version}`), map it to its concrete value declared under `<properties>`.
+
+**maven (`pom.xml`)** — extract concrete values:
+- `javaVersion`: value of `<java.version>`, `<maven.compiler.source>`, or `<source>`
 - `springBootVersion`: `<version>` inside `<parent>` where `<artifactId>` is `spring-boot-starter-parent`
-- `springFrameworkVersion`: `<version>` of `spring-webmvc`, `spring-context`, or `spring-framework-bom`
-- `junitVersion`: `<version>` of the `junit` dependency
-- `javaxServletVersion`: `"present"` if any `javax.servlet` dependency exists
+- `springFrameworkVersion`: resolved version of `spring-webmvc`, `spring-context`, or `spring-framework-bom`
+- `junitVersion`: resolved version of `junit` or `junit-jupiter` dependency
+- `javaxServletVersion`: `"present"` if any `javax.servlet` or `servlet-api` dependency exists
 
 **gradle (`build.gradle` / `build.gradle.kts`)** — extract:
 - `javaVersion`: value in `sourceCompatibility`, `JavaVersion.VERSION_*`, or `jvmToolchain`
@@ -61,7 +63,7 @@ From the found file:
 
 ### Step 4 — Return JSON
 
-Return ONLY this JSON (omit absent optional keys from `metadata`):
+Return ONLY this JSON schema (omit absent optional keys):
 
 ```json
 {
@@ -70,7 +72,7 @@ Return ONLY this JSON (omit absent optional keys from `metadata`):
   "project_location": "<absolute path | null>",
   "file_type": "<maven|npm|gradle|unknown|null>",
   "os": "<windows|linux|mac>",
-  "hasMavenWrapper": "<true|false — false for non-Maven projects>",
+  "hasMavenWrapper": true,
   "metadata": {
     "javaVersion": "...",
     "nodeVersion": "...",
@@ -88,4 +90,4 @@ Return ONLY this JSON (omit absent optional keys from `metadata`):
 }
 ```
 
-No explanation or extra text outside the JSON. If project not found: `project_location: null`, `file_type: null`, `metadata: null`. Multiple matches: prefer the one whose directory name best matches `project_name`. Never execute commands, modify files, or ask the user for clarification.
+No explanation or extra text outside the JSON. If project not found: `project_location: null`, `file_type: null`, `metadata: null`.

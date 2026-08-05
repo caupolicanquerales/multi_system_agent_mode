@@ -33,7 +33,7 @@ Expand to full FQCNs. Artifact coord prefix: `org.openrewrite.recipe:`. Deduplic
 | 2 | `junitVersion` starts with `"4"` | `rewrite-testing-frameworks:RELEASE` | `j.test.junit5.JUnit4to5Migration` |
 | 3 | `springBootVersion` < 3.4 | `rewrite-spring:RELEASE` | `j.spring.boot3.UpgradeSpringBoot_3_4` |
 | 4 | `springFrameworkVersion` >= 4 AND < 5 AND `springBootVersion` absent | `rewrite-spring:RELEASE` | `j.spring.framework.UpgradeSpringFramework_5_3` |
-| 5 | `springFrameworkVersion` < 6 AND `springBootVersion` absent | `rewrite-spring:RELEASE` | `j.spring.framework.UpgradeSpringFramework_6_0` |
+| 5 | `springFrameworkVersion` >= 5 AND < 6 AND `springBootVersion` absent | `rewrite-spring:RELEASE` | `j.spring.framework.UpgradeSpringFramework_6_0` |
 | 6 | `javaxServletVersion` present OR `springBootVersion` major < 3 OR (`springBootVersion` absent AND `javaVersion` >= 11) | `rewrite-migrate-java:RELEASE` | `j.migrate.jakarta.JavaxMigrationToJakarta` |
 | 7 | `springBootVersion` absent AND `javaVersion` < 11 AND `javaxServletVersion` absent | `rewrite-migrate-java:RELEASE` | `j.migrate.jakarta.JavaxMigrationToJakarta` |
 | 8 | `javaVersion` < 21 | `rewrite-logging-frameworks:RELEASE`, `rewrite-apache:RELEASE` | `j.log.slf4j.Log4jToSlf4j`, `a.commons.lang.ApacheCommonsStringUtilsRecipes`, `a.commons.collections.UpgradeApacheCommonsCollections_3_4` |
@@ -41,10 +41,12 @@ Expand to full FQCNs. Artifact coord prefix: `org.openrewrite.recipe:`. Deduplic
 | 9 | Any recipe active | *(none)* | Append `mvnR.UpgradeDependencyVersion` last with `-Drewrite.options` wildcards: `groupId=*`, `artifactId=*`, `newVersion=LATEST` |
 
 **Row constraints:**
-- **Rows 4 & 5:** Only when `springBootVersion` absent. Emit row 4 recipe before row 5. If `springBootVersion` present, skip rows 4–5 (row 3 manages the upgrade internally).
-- **Rows 6 & 7:** Mutually exclusive — deduplicate `JavaxMigrationToJakarta` if both match.
+- **Rows 4 & 5:** Mutually exclusive by version band — only one can fire per run. Row 4 fires for 4.x projects (upgrades to 5.3). Row 5 fires for 5.x projects (upgrades to 6.0). A 4.x project must be migrated in two separate runs: first apply row 4, then row 5. Never emit both in the same `<recipes>` list. If `springBootVersion` is present, skip rows 4–5 entirely (row 3 manages the upgrade internally).
+- **Rows 6 & 7:** Mutually exclusive — deduplicate `JavaxMigrationToJakarta` if both match; include it exactly once.
 - **Row 9:** All three options are required; omitting any silently skips the recipe. Never narrow `groupId` to a specific value.
 - **Row 10:** The `MigrateLegacyDependencies` YAML recipe (below) swaps Springfox → SpringDoc in `pom.xml`. Row 10 must accompany it — without row 10, `io.swagger.annotations.*` source references remain and cause compilation failure.
+
+**Final deduplication:** After collecting all matching recipes, remove any duplicate FQCNs from `<recipes>` (preserving first-occurrence order) before assembling the command.
 
 Collect all matching artifacts (comma-separated, deduplicated) into `<artifacts>` and all recipes (comma-separated) into `<recipes>`. Append `com.custom.openrewrite.MigrateLegacyDependencies` last.
 
