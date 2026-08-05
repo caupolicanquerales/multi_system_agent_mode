@@ -105,27 +105,27 @@ echo "Ensure Java 21 is set as the active JDK before running this command" && \
   -Dmaven.compiler.failOnError=false
 ```
 
-**Windows** — serialize `<YAML_BLOCK>` as `$yml` using **single quotes** (prevents PowerShell variable interpolation). Replace each newline with `` `n ``, each `'` with `''` (PowerShell single-quote escape), and wrap in single quotes. Use `[System.IO.File]::WriteAllText()` — NOT `Set-Content`. Target shell is `powershell.exe` or `pwsh.exe` — do NOT generate these commands if the VS Code terminal is `cmd.exe` (PowerShell syntax is incompatible with cmd.exe).
+**Windows** — serialize `<YAML_BLOCK>` using a single-quoted PowerShell Here-String (`@'...'@`). This guarantees multi-line formatting without variable expansion or escape sequence issues. Write using `[System.IO.File]::WriteAllText()`. Target shell is `powershell.exe` or `pwsh.exe` — do NOT generate these commands if the VS Code terminal is `cmd.exe`.
 
 *With wrapper:*
-```
-$yml = '<YAML_BLOCK_PS_SINGLE_QUOTED>'; [System.IO.File]::WriteAllText("$env:TEMP\rewrite-custom.yml", $yml); Write-Host 'Ensure Java 21 is set as the active JDK before running this command' ; & '<project_location>\mvnw.cmd' org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress "-Drewrite.configLocation=$env:TEMP\rewrite-custom.yml" "-Drewrite.recipeArtifactCoordinates=<artifacts>" "-Drewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion,com.custom.openrewrite.MigrateLegacyDependencies" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.groupId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.artifactId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST"
+```powershell
+$yml = @'
+<YAML_BLOCK>
+'@; [System.IO.File]::WriteAllText("$env:TEMP\rewrite-custom.yml", $yml); Write-Host 'Ensure Java 21 is set as the active JDK before running this command' ; & '<project_location>\mvnw.cmd' org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress "-Drewrite.configLocation=$env:TEMP\rewrite-custom.yml" "-Drewrite.recipeArtifactCoordinates=<artifacts>" "-Drewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion,com.custom.openrewrite.MigrateLegacyDependencies" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.groupId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.artifactId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST"
 ```
 
 *Without wrapper:*
-```
-$yml = '<YAML_BLOCK_PS_SINGLE_QUOTED>'; [System.IO.File]::WriteAllText("$env:TEMP\rewrite-custom.yml", $yml); Set-Location '<project_location>' ; Write-Host 'Ensure Java 21 is set as the active JDK before running this command' ; mvn org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress "-Drewrite.configLocation=$env:TEMP\rewrite-custom.yml" "-Drewrite.recipeArtifactCoordinates=<artifacts>" "-Drewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion,com.custom.openrewrite.MigrateLegacyDependencies" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.groupId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.artifactId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST"
+```powershell
+$yml = @'
+<YAML_BLOCK>
+'@; [System.IO.File]::WriteAllText("$env:TEMP\rewrite-custom.yml", $yml); Set-Location '<project_location>' ; Write-Host 'Ensure Java 21 is set as the active JDK before running this command' ; mvn org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -B --no-transfer-progress "-Drewrite.configLocation=$env:TEMP\rewrite-custom.yml" "-Drewrite.recipeArtifactCoordinates=<artifacts>" "-Drewrite.activeRecipes=<recipes>,org.openrewrite.maven.UpgradeDependencyVersion,com.custom.openrewrite.MigrateLegacyDependencies" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.groupId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.artifactId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST"
 ```
 
-**Windows serialization rules for `<YAML_BLOCK_PS_SINGLE_QUOTED>`:**
-- Replace every newline with `` `n ``
-- Replace every `'` with `''` (PowerShell single-quote escaping)
-- Replace every non-breaking space (`\u00A0`, Unicode 160) with a regular ASCII space before serializing
-- Strip any leading/trailing whitespace from each logical line before joining with `` `n ``
-- Wrap the entire result in single quotes: `'...'`
-- Do NOT use double quotes — they cause `$`-prefixed tokens (e.g. `$env`, `$var`) inside the YAML to be interpreted as PowerShell variables
-- Parameters containing commas (`-Drewrite.recipeArtifactCoordinates=`, `-Drewrite.activeRecipes=`) and wildcard parameters (`-Drewrite.options...groupId=*`, `...artifactId=*`) MUST be wrapped in double quotes to prevent PowerShell from splitting them into separate arguments
-- Use `Write-Host` instead of `echo` — `echo` is an alias for `Write-Output` in PowerShell and may produce unexpected object output in some terminal contexts
-- Target shell is `powershell.exe` or `pwsh.exe` — do NOT generate these commands if the VS Code terminal is `cmd.exe` (PowerShell syntax is incompatible with cmd.exe)
+**Windows serialization rules for `<YAML_BLOCK>`:**
+- Format the YAML block inside a single-quoted Here-String (`@'` on its own opening line, `'@` on its own closing line).
+- Preserve literal line breaks inside `@' ... '@`. Do NOT inject backtick escapes (`` `n ``).
+- Standard ASCII spaces (`\u0020`) ONLY — strip/replace non-breaking spaces (`\u00A0`).
+- Parameters containing commas (`-Drewrite.recipeArtifactCoordinates=`, `-Drewrite.activeRecipes=`) and wildcard parameters (`-Drewrite.options...groupId=*`, `...artifactId=*`) MUST be wrapped in double quotes.
+- Target shell is `powershell.exe` or `pwsh.exe` — do NOT generate these commands if the VS Code terminal is `cmd.exe`.
 
 
