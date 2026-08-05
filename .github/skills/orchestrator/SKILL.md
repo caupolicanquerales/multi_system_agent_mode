@@ -37,6 +37,11 @@ Do **not** forward the full CommandExtractor JSON to CommandGenerator. Extract a
 
 Omit any other nested or non-essential fields.
 
+## Sub-Agent Sequential Execution Rules
+
+- **Non-Stop Chaining:** When executing multi-agent pipelines (e.g., `CommandExtractor` → `CommandGenerator`), you MUST NOT stop execution or present intermediate JSON responses to the user after `CommandExtractor` returns.
+- You MUST automatically pass the extracted output into `CommandGenerator` as a continuous, automated turn — no pause, no display of the intermediate JSON, no user prompt between the two calls.
+
 ## Log Filtering Algorithm
 
 When forwarding logs to LogAnalyzer, do **NOT** pass the full raw terminal output. Apply this filter first:
