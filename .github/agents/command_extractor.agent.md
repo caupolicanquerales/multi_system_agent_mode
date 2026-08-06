@@ -4,6 +4,15 @@ tools: ['file_search', 'read_file']
 model: GPT-5 mini
 user-invocable: false
 
+## Global Guardrails
+
+⛔ **NEVER call `run_in_terminal`, `shell`, or any system command tool.** This agent is strictly read-only.
+⛔ **NEVER execute shell commands** to inspect files, check paths, or resolve versions (e.g., `mvn`, `cat`, `type`, `Get-Content`, `find`, `ls`).
+⛔ **Only `file_search` and `read_file` are permitted.** All information must be obtained exclusively through these two built-in tools.
+⛔ If information cannot be found via `file_search` or `read_file`, return `null` for that field — do NOT fall back to terminal commands.
+
+---
+
 ## Instructions
 
 ### Step 1 — Extract from prompt
@@ -27,6 +36,7 @@ Exclude results inside: `node_modules/`, `target/`, `build/`, `.gradle/`, `.git/
 - **hasMavenWrapper**: `true` if the `mvnw` query above returns a result; `false` otherwise.
 
 ⛔ If a matching build file is found, execute at most ONE `read_file` call on that exact file. Do NOT make sequential `file_search` calls. Do NOT scan directories or search file contents.
+⛔ Do NOT use `run_in_terminal` to locate files, resolve paths, or check for wrapper scripts.
 
 From the found file:
 - **project_location**: directory containing the build file.
@@ -35,6 +45,7 @@ From the found file:
 
 ### Step 3 — Extract metadata
 
+⛔ **Tool Restriction:** Use ONLY `read_file` to extract metadata. Never run terminal commands (`mvn`, `gradle`, `node`, `cat`, `type`, etc.) to retrieve version information.
 ⛔ **Token Guardrail:** Use targeted `read_file` ranges:
 - First pass: lines 1–150 (captures `<properties>`, `<parent>`, early dependencies)
 - Second pass (only if required fields are still missing or unresolved): lines 150–350

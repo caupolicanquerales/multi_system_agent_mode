@@ -1,0 +1,87 @@
+﻿---
+type: specs.openrewrite.org/v1beta/recipe
+name: com.custom.openrewrite.MigrateLegacyDependencies
+recipeList:
+  # 1. Add managed BOMs first — all subsequent steps benefit from BOM-managed versions
+  - org.openrewrite.maven.AddManagedDependency:
+      groupId: org.springframework
+      artifactId: spring-framework-bom
+      version: 6.1.14
+      type: pom
+      scope: import
+  - org.openrewrite.maven.AddManagedDependency:
+      groupId: jakarta.platform
+      artifactId: jakarta.jakartaee-bom
+      version: 10.0.0
+      type: pom
+      scope: import
+
+  # 2. Migration and replacements
+  - org.openrewrite.java.dependencies.RemoveDependency:
+      groupId: junit
+      artifactId: junit
+  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:
+      groupId: com.fasterxml.jackson.core
+      artifactId: jackson-databind
+      newVersion: 2.17.2
+      overrideManagedVersion: true
+  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:
+      groupId: com.h2database
+      artifactId: h2
+      newVersion: 2.2.224
+      overrideManagedVersion: true
+  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:
+      groupId: org.apache.tomcat.embed
+      artifactId: tomcat-embed-core
+      newVersion: 10.1.25
+      overrideManagedVersion: true
+  - org.openrewrite.java.dependencies.ChangeDependency:
+      oldGroupId: commons-lang
+      oldArtifactId: commons-lang
+      newGroupId: org.apache.commons
+      newArtifactId: commons-lang3
+      newVersion: 3.14.0
+  - org.openrewrite.java.dependencies.ChangeDependency:
+      oldGroupId: io.springfox
+      oldArtifactId: springfox-swagger2
+      newGroupId: org.springdoc
+      newArtifactId: springdoc-openapi-starter-webmvc-ui
+      newVersion: 2.6.0
+  - org.openrewrite.java.dependencies.ChangeDependency:
+      oldGroupId: javax.servlet
+      oldArtifactId: servlet-api
+      newGroupId: jakarta.servlet
+      newArtifactId: jakarta.servlet-api
+      newVersion: 6.0.0
+  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-swagger-ui}
+  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-core}
+  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-bean-validators}
+  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: com.google.guava, artifactId: guava}
+
+  # 3. Re-declare properties so ${spring.version} resolves to the BOM version before version stripping
+  - org.openrewrite.maven.AddProperty:
+      key: spring.version
+      value: "6.1.14"
+      preserveExistingValue: false
+  - org.openrewrite.maven.AddProperty:
+      key: springframework.version
+      value: "6.1.14"
+      preserveExistingValue: false
+
+  # 4. Strip explicit <version> tags now that ${spring.version} == 6.1.14 == BOM version
+  - org.openrewrite.maven.RemoveRedundantDependencyVersions:
+      groupPattern: org.springframework
+      artifactPattern: "*"
+  - org.openrewrite.maven.RemoveRedundantDependencyVersions:
+      groupPattern: jakarta.servlet
+      artifactPattern: jakarta.servlet-api
+
+  # 5. Remove now-unused property declarations
+  - org.openrewrite.maven.RemoveProperty:
+      propertyName: spring.version
+  - org.openrewrite.maven.RemoveProperty:
+      propertyName: springframework.version
+  - org.openrewrite.maven.RemoveProperty:
+      propertyName: log4j.version
+  - org.openrewrite.maven.RemoveProperty:
+      propertyName: junit.version
