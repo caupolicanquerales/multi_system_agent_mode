@@ -37,7 +37,11 @@ Fix approach by category:
 
 ### Step 4 — Apply via diff
 
-Use `replace_string_in_file`: set `oldString` to the exact original lines (correct indentation) and `newString` to the corrected lines. Include 1–2 lines of unchanged context to anchor the target. Never replace the entire file. Multiple independent changes in one defect → separate calls.
+Use `replace_string_in_file`: set `oldString` to the exact original lines (correct indentation) and `newString` to the corrected lines.
+
+**Uniqueness rule:** `oldString` MUST be unique within the file. Always include **2–3 lines of unchanged surrounding context** — e.g. the enclosing method signature, the preceding variable declaration, or the opening brace of the containing block — so the match cannot land on a duplicate pattern (e.g. `} catch (Exception e) {` appearing multiple times). If the ±15-line read window does not provide enough unique context, widen the read to ±30 lines for that defect only.
+
+Never replace the entire file. Multiple independent changes in one defect → separate calls.
 
 ### Step 5 — Ask Keep/Undo
 
