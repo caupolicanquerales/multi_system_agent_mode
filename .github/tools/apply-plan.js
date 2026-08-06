@@ -103,7 +103,8 @@ function parseMigrationPlan(markdown) {
     }
   };
 
-  for (const line of lines) {
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const line = lines[lineIdx];
     // --- Project name from header line ---
     // **Project:** MyApp | **Date:** ...
     const projMatch = line.match(/\*\*Project:\*\*\s*([^|]+)/);
@@ -155,6 +156,7 @@ function parseMigrationPlan(markdown) {
         risk:        'Med',
         current:     '',
         replacement: '',
+        _mdLine:     lineIdx + 1,  // 1-based markdown line number for error reporting
       };
       continue;
     }
@@ -198,7 +200,45 @@ function parseMigrationPlan(markdown) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Helpers for snippet matching
+// 3. Schema validation
+//
+// Validates every parsed finding and emits actionable errors that reference
+// the exact markdown line number so the reporter can fix the plan in one turn.
+// Returns an array of error strings; empty array means the plan is valid.
+// ---------------------------------------------------------------------------
+function validateFindings(findings) {
+  const errors = [];
+  for (const finding of findings) {
+    const loc = finding._mdLine
+      ? `Line ${finding._mdLine} in MIGRATION_PLAN.md`
+      : `Finding (skill=${finding.skill}, rule=${finding.rule})`;
+
+    if (!finding.file || !finding.file.trim()) {
+      errors.push(
+        `ERROR: ${loc} — finding is missing target file path (no "- **File:**" entry).`
+      );
+    }
+    if (!finding.current || !finding.current.trim()) {
+      errors.push(
+        `ERROR: ${loc} — finding has an empty Current code block (no fenced snippet after "- **Current:**").`
+      );
+    }
+    if (!finding.replacement && finding.replacement !== '') {
+      errors.push(
+        `ERROR: ${loc} — finding is missing a Replacement section entirely.`
+      );
+    }
+    if (finding.line === 0 || finding.line == null) {
+      errors.push(
+        `ERROR: ${loc} — finding is missing a source line number (no "- **Line:**" in the meta row).`
+      );
+    }
+  }
+  return errors;
+}
+
+// ---------------------------------------------------------------------------
+// 4. Helpers for snippet matching
 // ---------------------------------------------------------------------------
 
 // Keeps the file's original line-ending style (CRLF or LF).
@@ -715,6 +755,14 @@ function main() {
   }
 
   const findings = parsedPlan.findings;
+
+  // --- Schema validation — fail fast with actionable line-number errors ------
+  const validationErrors = validateFindings(findings);
+  if (validationErrors.length > 0) {
+    validationErrors.forEach(e => console.error(e));
+    console.error(`\nFatal: MIGRATION_PLAN.md failed schema validation (${validationErrors.length} error(s)). Fix the above issues and re-run.`);
+    process.exit(1);
+  }
 
   // --- Build summary skeleton ------------------------------------------------
   const summary = {
