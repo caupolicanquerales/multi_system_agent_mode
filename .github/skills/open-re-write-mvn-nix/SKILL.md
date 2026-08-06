@@ -59,12 +59,36 @@ Collect all matching artifacts (comma-separated, deduplicated) into `<artifacts>
 type: specs.openrewrite.org/v1beta/recipe
 name: com.custom.openrewrite.MigrateLegacyDependencies
 recipeList:
+  # Purge JUnit 4 POM declaration (JUnit4to5Migration handles source; this removes the dependency entry)
+  - org.openrewrite.java.dependencies.RemoveDependency:
+      groupId: junit
+      artifactId: junit
+  # Force Jackson to Java 21 / Spring 6 compatible version
+  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:
+      groupId: com.fasterxml.jackson.core
+      artifactId: jackson-databind
+      newVersion: 2.17.2
+      overrideManagedVersion: true
+  # Upgrade H2 1.x → 2.x (required on JDK 17+)
+  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:
+      groupId: com.h2database
+      artifactId: h2
+      newVersion: 2.2.224
+      overrideManagedVersion: true
+  # Upgrade embedded Tomcat to 10.1.x (Servlet 6 / Jakarta EE 9 compatibility)
+  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:
+      groupId: org.apache.tomcat.embed
+      artifactId: tomcat-embed-core
+      newVersion: 10.1.25
+      overrideManagedVersion: true
+  # Legacy Commons migration
   - org.openrewrite.java.dependencies.ChangeDependency:
       oldGroupId: commons-lang
       oldArtifactId: commons-lang
       newGroupId: org.apache.commons
       newArtifactId: commons-lang3
       newVersion: 3.14.0
+  # Springfox → SpringDoc POM swap
   - org.openrewrite.java.dependencies.ChangeDependency:
       oldGroupId: io.springfox
       oldArtifactId: springfox-swagger2
@@ -83,9 +107,11 @@ Evaluate using metadata only — no file inspection.
 
 | # | Condition | Required action |
 |---|---|---|
-| M1 | Row 5 active OR `javaxServletVersion` present | Remove `@EnableSwagger2`; replace `Docket` bean with Springdoc `OpenAPI` bean if Springfox was in use. |
+| M1 | Row 5 active OR `javaxServletVersion` present OR Row 10 active | **Automated** — `JavaxMigrationToJakarta` (Rows 6/7) rewrites `javax.servlet.*` → `jakarta.servlet.*` in source files; `SpringFoxToSpringDoc` (Row 10) removes `@EnableSwagger2` and replaces `Docket` with the SpringDoc `OpenAPI` bean. Both run in the same execution as the POM changes. No manual source edits required. |
+| M2 | Row 4 was active (`springFrameworkVersion` >= 4 AND < 5) | **Two-run gate:** after this run completes, re-run `apply openReWrite` — the second run will fire Row 5 to complete the Spring Framework 5.3 → 6.0 upgrade. Do NOT skip the second run; skipping leaves the project on Spring 5.x and prevents Jakarta/Spring 6 compatibility. |
+| M3 | Any recipe active | **POM XML integrity:** the automated sanitization step at the end of the command runs `mvn validate` and strips injected plain-text nodes via `perl -i`. If validation still fails after the automated step, open `pom.xml` manually, remove remaining plain-text inside XML elements, and wrap any retained notes as valid XML comments `<!-- note -->`. |
 
-Append a "Manual Steps Required" section to `confirmation_message` for each matching row.
+Append a "Manual Steps Required" section to `confirmation_message` for M2 only. M1 and M3 are fully automated by the command.
 
 ## Maven Command Template
 
@@ -102,7 +128,13 @@ echo "Ensure Java 21 is set as the active JDK before running this command" && \
   -Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.groupId=* \
   -Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.artifactId=* \
   -Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST \
-  -Dmaven.compiler.failOnError=false
+  -Dmaven.compiler.failOnError=false && \
+<mvn> tidy:pom -Dpom.inplace=true || true && \
+<mvn> validate -q || ( \
+  echo "POM validation failed — removing injected text nodes from pom.xml..." && \
+  perl -i -ne 'print unless /Dependency already updated/' pom.xml && \
+  <mvn> validate -q \
+)
 ```
 
 

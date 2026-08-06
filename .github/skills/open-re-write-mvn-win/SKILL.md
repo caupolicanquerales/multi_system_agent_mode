@@ -59,12 +59,36 @@ Collect all matching artifacts (comma-separated, deduplicated) into `<artifacts>
 type: specs.openrewrite.org/v1beta/recipe
 name: com.custom.openrewrite.MigrateLegacyDependencies
 recipeList:
+  # Purge JUnit 4 POM declaration (JUnit4to5Migration handles source; this removes the dependency entry)
+  - org.openrewrite.java.dependencies.RemoveDependency:
+      groupId: junit
+      artifactId: junit
+  # Force Jackson to Java 21 / Spring 6 compatible version
+  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:
+      groupId: com.fasterxml.jackson.core
+      artifactId: jackson-databind
+      newVersion: 2.17.2
+      overrideManagedVersion: true
+  # Upgrade H2 1.x → 2.x (required on JDK 17+)
+  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:
+      groupId: com.h2database
+      artifactId: h2
+      newVersion: 2.2.224
+      overrideManagedVersion: true
+  # Upgrade embedded Tomcat to 10.1.x (Servlet 6 / Jakarta EE 9 compatibility)
+  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:
+      groupId: org.apache.tomcat.embed
+      artifactId: tomcat-embed-core
+      newVersion: 10.1.25
+      overrideManagedVersion: true
+  # Legacy Commons migration
   - org.openrewrite.java.dependencies.ChangeDependency:
       oldGroupId: commons-lang
       oldArtifactId: commons-lang
       newGroupId: org.apache.commons
       newArtifactId: commons-lang3
       newVersion: 3.14.0
+  # Springfox → SpringDoc POM swap
   - org.openrewrite.java.dependencies.ChangeDependency:
       oldGroupId: io.springfox
       oldArtifactId: springfox-swagger2
@@ -83,9 +107,11 @@ Evaluate using metadata only — no file inspection.
 
 | # | Condition | Required action |
 |---|---|---|
-| M1 | Row 5 active OR `javaxServletVersion` present | Remove `@EnableSwagger2`; replace `Docket` bean with Springdoc `OpenAPI` bean if Springfox was in use. |
+| M1 | Row 5 active OR `javaxServletVersion` present OR Row 10 active | **Automated** — `JavaxMigrationToJakarta` (Rows 6/7) rewrites `javax.servlet.*` → `jakarta.servlet.*` in source files; `SpringFoxToSpringDoc` (Row 10) removes `@EnableSwagger2` and replaces `Docket` with the SpringDoc `OpenAPI` bean. Both run in the same execution as the POM changes. No manual source edits required. |
+| M2 | Row 4 was active (`springFrameworkVersion` >= 4 AND < 5) | **Two-run gate:** after this run completes, re-run `apply openReWrite` — the second run will fire Row 5 to complete the Spring Framework 5.3 → 6.0 upgrade. Do NOT skip the second run; skipping leaves the project on Spring 5.x and prevents Jakarta/Spring 6 compatibility. |
+| M3 | Any recipe active | **POM XML integrity:** the automated sanitization step at the end of the command runs `mvn validate` and strips injected plain-text nodes via PowerShell string filtering. If validation still fails after the automated step, open `pom.xml` manually, remove remaining plain-text inside XML elements, and wrap any retained notes as valid XML comments `<!-- note -->`. |
 
-Append a "Manual Steps Required" section to `confirmation_message` for each matching row.
+Append a "Manual Steps Required" section to `confirmation_message` for M2 only. M1 and M3 are fully automated by the command.
 
 ## Maven Command Template
 
@@ -95,5 +121,6 @@ Single-line PowerShell; all `-D` flags in double quotes. Do NOT use if terminal 
 - Without wrapper: prefix with `Set-Location '<project_location>' ;`, then `<mvn_exe>` = `mvn`
 
 ```powershell
-$yml = "---`ntype: specs.openrewrite.org/v1beta/recipe`nname: com.custom.openrewrite.MigrateLegacyDependencies`nrecipeList:`n  - org.openrewrite.java.dependencies.ChangeDependency:`n      oldGroupId: commons-lang`n      oldArtifactId: commons-lang`n      newGroupId: org.apache.commons`n      newArtifactId: commons-lang3`n      newVersion: 3.14.0`n  - org.openrewrite.java.dependencies.ChangeDependency:`n      oldGroupId: io.springfox`n      oldArtifactId: springfox-swagger2`n      newGroupId: org.springdoc`n      newArtifactId: springdoc-openapi-starter-webmvc-ui`n      newVersion: 2.6.0`n  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-swagger-ui}`n  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-core}`n  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-bean-validators}`n  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: com.google.guava, artifactId: guava}"; [System.IO.File]::WriteAllText("$env:TEMP\rewrite-custom.yml", $yml.Replace([char]0x00A0, ' ')); Write-Host 'Ensure Java 21 is set as the active JDK before running this command' ; <mvn_exe> org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -q -B --no-transfer-progress "-Drewrite.configLocation=$env:TEMP\rewrite-custom.yml" "-Drewrite.recipeArtifactCoordinates=<artifacts>" "-Drewrite.activeRecipes=<recipes>" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.groupId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.artifactId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST" "-Dmaven.compiler.failOnError=false"
+$yml = "---`ntype: specs.openrewrite.org/v1beta/recipe`nname: com.custom.openrewrite.MigrateLegacyDependencies`nrecipeList:`n  - org.openrewrite.java.dependencies.RemoveDependency:`n      groupId: junit`n      artifactId: junit`n  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:`n      groupId: com.fasterxml.jackson.core`n      artifactId: jackson-databind`n      newVersion: 2.17.2`n      overrideManagedVersion: true`n  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:`n      groupId: com.h2database`n      artifactId: h2`n      newVersion: 2.2.224`n      overrideManagedVersion: true`n  - org.openrewrite.java.dependencies.UpgradeDependencyVersion:`n      groupId: org.apache.tomcat.embed`n      artifactId: tomcat-embed-core`n      newVersion: 10.1.25`n      overrideManagedVersion: true`n  - org.openrewrite.java.dependencies.ChangeDependency:`n      oldGroupId: commons-lang`n      oldArtifactId: commons-lang`n      newGroupId: org.apache.commons`n      newArtifactId: commons-lang3`n      newVersion: 3.14.0`n  - org.openrewrite.java.dependencies.ChangeDependency:`n      oldGroupId: io.springfox`n      oldArtifactId: springfox-swagger2`n      newGroupId: org.springdoc`n      newArtifactId: springdoc-openapi-starter-webmvc-ui`n      newVersion: 2.6.0`n  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-swagger-ui}`n  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-core}`n  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-bean-validators}`n  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: com.google.guava, artifactId: guava}"; [System.IO.File]::WriteAllText("$env:TEMP\rewrite-custom.yml", $yml.Replace([char]0x00A0, ' ')); Write-Host 'Ensure Java 21 is set as the active JDK before running this command' ; <mvn_exe> org.openrewrite.maven:rewrite-maven-plugin:6.44.0:run -q -B --no-transfer-progress "-Drewrite.configLocation=$env:TEMP\rewrite-custom.yml" "-Drewrite.recipeArtifactCoordinates=<artifacts>" "-Drewrite.activeRecipes=<recipes>" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.groupId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.artifactId=*" "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST" "-Dmaven.compiler.failOnError=false" ; if ($LASTEXITCODE -eq 0) { <mvn_exe> tidy:pom -Dpom.inplace=true 2>$null ; <mvn_exe> validate -q ; if ($LASTEXITCODE -ne 0) { Write-Host 'POM validation failed — removing injected text nodes from pom.xml...' ; (Get-Content pom.xml -Encoding utf8) | Where-Object { $_ -notmatch 'Dependency already updated' } | Set-Content pom.xml -Encoding utf8 ; <mvn_exe> validate -q } } else { Write-Host 'OpenRewrite run failed — skipping POM sanitization.' }
 ```
+
