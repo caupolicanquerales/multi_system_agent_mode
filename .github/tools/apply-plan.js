@@ -79,7 +79,7 @@ function parseMigrationPlan(markdown) {
   const findings  = [];
   let projectName = 'Project';
 
-  let currentSkill    = null;
+  let currentSkill    = 'java21'; // default; overridden by [Skill: ...] headers
   let currentRule     = null;
   let currentRuleName = '';
   let currentFinding  = null;   // finding object being built
@@ -119,6 +119,20 @@ function parseMigrationPlan(markdown) {
         flushCode();
         continue;  // Fix #3: must not fall through into heading/meta matchers
       }
+      // // BEFORE marker — start/reset current collection (skip the marker line itself)
+      if (/^\s*\/\/\s*(BEFORE|CURRENT)(\s|$)/i.test(line)) {
+        if (currentFinding && collectMode === 'current') codeLines = [];
+        continue;
+      }
+      // // AFTER marker — flush current block and start replacement collection
+      if (/^\s*\/\/\s*(AFTER|REPLACEMENT)(\s|$)/i.test(line)) {
+        if (currentFinding) {
+          currentFinding.current = codeLines.join('\n');
+          codeLines   = [];
+          collectMode = 'replacement';
+        }
+        continue;
+      }
       codeLines.push(line);
       continue;
     }
@@ -134,8 +148,8 @@ function parseMigrationPlan(markdown) {
       continue;
     }
 
-    // --- Rule heading: #### Rule 3 — Optional Name ---
-    const ruleMatch = line.match(/^####\s+Rule\s+(\d+)(?:\s+[—\-–]\s*(.+))?/);
+    // --- Rule heading at ### or #### level: ### 🟠 Rule 17 — Name ---
+    const ruleMatch = line.match(/^#{3,4}\s+.*\bRule\s+(\d+)\b(?:\s*[—\-–]\s*(.+))?/i);
     if (ruleMatch) {
       commitFinding();
       currentRule     = parseInt(ruleMatch[1], 10);
@@ -143,21 +157,61 @@ function parseMigrationPlan(markdown) {
       continue;
     }
 
-    // --- Finding heading: ##### Finding 3.1 ---
-    if (/^#####\s+Finding\s+[\d.]+/.test(line)) {
+    // --- Bold paragraph finding container: **...`File.java`...line N...** ---
+    const boldMatch = line.match(/^\*\*.*`([^`]+\.java)`.*\bline\s+(\d+)/i);
+    if (boldMatch) {
       commitFinding();
       currentFinding = {
         skill:       currentSkill,
         rule:        currentRule,
         rule_name:   currentRuleName,
-        file:        null,
-        line:        0,
+        file:        boldMatch[1].trim(),
+        line:        parseInt(boldMatch[2], 10),
         effort:      'Med',
-        risk:        'Med',
+        risk:        'Low',
         current:     '',
         replacement: '',
-        _mdLine:     lineIdx + 1,  // 1-based markdown line number for error reporting
+        _mdLine:     lineIdx + 1,
       };
+      continue;
+    }
+
+    // --- Flexible finding header matcher: ##### Finding N.M or #### `File.java` ---
+    if (/^#{4,5}\s+.*(Finding|\.java)/i.test(line)) {
+      commitFinding();
+      const hdrFile = line.match(/`([^`]+\.java)`/i);
+      const hdrLine = line.match(/lines?\s+(\d+)/i);
+      currentFinding = {
+        skill:       currentSkill,
+        rule:        currentRule,
+        rule_name:   currentRuleName,
+        file:        hdrFile ? hdrFile[1] : null,
+        line:        hdrLine ? parseInt(hdrLine[1], 10) : 0,
+        effort:      'Med',
+        risk:        'Low',
+        current:     '',
+        replacement: '',
+        _mdLine:     lineIdx + 1,
+      };
+      continue;
+    }
+
+    // --- Table row matcher: | `File.java` | 42 | `before` | `after` | ---
+    const tableMatch = line.match(/^\|\s*`([^`]+)`\s*\|\s*(\d+)\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|/);
+    if (tableMatch) {
+      commitFinding();
+      findings.push({
+        skill:       currentSkill || 'java21',
+        rule:        currentRule  || 0,
+        rule_name:   currentRuleName,
+        file:        tableMatch[1].trim(),
+        line:        parseInt(tableMatch[2], 10),
+        effort:      'Low',
+        risk:        'Low',
+        current:     tableMatch[3].trim(),
+        replacement: tableMatch[4].trim(),
+        _mdLine:     lineIdx + 1,
+      });
       continue;
     }
 
@@ -189,8 +243,17 @@ function parseMigrationPlan(markdown) {
     }
 
     // --- Opening fence: ```java or ``` ---
-    if (/^```/.test(line) && collectMode !== null) {
-      insideFence = true;
+    if (/^```/.test(line)) {
+      if (collectMode !== null) {
+        insideFence = true;
+        continue;
+      }
+      // Auto-start current collection for header/bold-paragraph findings with no explicit labels
+      if (currentFinding && !currentFinding.current) {
+        collectMode = 'current';
+        codeLines   = [];
+        insideFence = true;
+      }
       continue;
     }
   }
@@ -261,8 +324,9 @@ function trimEmptyLines(str) {
 function looksLikeJavaCode(line) {
   const s = line.trim();
   if (!s) return false;
-  if (/[;{}()=@<>]/.test(s)) return true;
-  if (/^(public|private|protected|class|interface|enum|import|package|throws|return|new\s|final\s|static\s)/.test(s)) return true;
+  // A dot, semicolon, parentheses, braces, equals, or angle brackets → Java syntax
+  if (/[;{}()=@<>.]/.test(s)) return true;
+  if (/^(public|private|protected|class|interface|enum|import|package|throws|return|new|final|static|var|String|List|Map|Set)/.test(s)) return true;
   if (/^\s*(\/\/|\/\*|\*)/.test(s)) return true;
   return false;
 }
@@ -492,6 +556,34 @@ function deduplicateImports(content, relPath, warnings) {
   }
 
   return { content: changed ? result.join('\n') : content, changed };
+}
+
+// ---------------------------------------------------------------------------
+// 4b. Bare-filename resolver
+//
+// When a finding specifies only a filename (e.g. "StringUtils.java") rather
+// than a project-relative path, walk the project tree to locate the file.
+// Skips common output / vendor directories to keep the search fast.
+// ---------------------------------------------------------------------------
+const SKIP_DIRS = new Set(['node_modules', 'target', '.git', 'build', 'dist', '.mvn', '.gradle']);
+
+function findFileInProject(projectPath, filename) {
+  function walk(dir) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return null; }
+    for (const entry of entries) {
+      if (SKIP_DIRS.has(entry.name)) continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const found = walk(fullPath);
+        if (found) return found;
+      } else if (entry.name === filename) {
+        return fullPath;
+      }
+    }
+    return null;
+  }
+  return walk(projectPath);
 }
 
 // ---------------------------------------------------------------------------
@@ -756,12 +848,11 @@ function main() {
 
   const findings = parsedPlan.findings;
 
-  // --- Schema validation — fail fast with actionable line-number errors ------
+  // --- Schema validation — warn and skip incomplete findings, do not abort ---
   const validationErrors = validateFindings(findings);
   if (validationErrors.length > 0) {
-    validationErrors.forEach(e => console.error(e));
-    console.error(`\nFatal: MIGRATION_PLAN.md failed schema validation (${validationErrors.length} error(s)). Fix the above issues and re-run.`);
-    process.exit(1);
+    validationErrors.forEach(e => console.warn(e.replace(/^ERROR:/, 'Warning:')));
+    console.warn(`Warning: ${validationErrors.length} finding(s) are incomplete and will be skipped.`);
   }
 
   // --- Build summary skeleton ------------------------------------------------
@@ -789,10 +880,22 @@ function main() {
   }
 
   // --- Apply findings file-by-file ------------------------------------------
-  for (const [relPath, fileFindings] of fileMap.entries()) {
-    const absoluteFilePath = path.isAbsolute(relPath)
-      ? relPath
-      : path.resolve(projectPath, relPath);
+  for (const [relKey, fileFindings] of fileMap.entries()) {
+    let absoluteFilePath = path.isAbsolute(relKey)
+      ? relKey
+      : path.resolve(projectPath, relKey);
+    let relPath = relKey;
+
+    if (!fs.existsSync(absoluteFilePath)) {
+      // Bare filename (no directory separators) — search the project tree
+      if (!relKey.includes('/') && !relKey.includes('\\')) {
+        const found = findFileInProject(projectPath, relKey);
+        if (found) {
+          absoluteFilePath = found;
+          relPath = path.relative(projectPath, found);
+        }
+      }
+    }
 
     if (!fs.existsSync(absoluteFilePath)) {
       console.warn(`Warning: File not found: ${absoluteFilePath} — skipping ${fileFindings.length} finding(s).`);

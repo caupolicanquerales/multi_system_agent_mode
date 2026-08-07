@@ -17,9 +17,27 @@ user-invocable: false
 
 ### Step 1 — Extract from prompt
 
-- **command**: action requested (e.g. `build`, `test`, `run`, `package`, `install`). If user asks to migrate/modernize/refactor with OpenRewrite → `apply openReWrite`.
-- **project_name**: name of the target project.
-- **os**: `windows` if Windows/drive letters/backslashes; `mac` if macOS mentioned; `linux` otherwise (default).
+The Orchestrator passes the raw user message, which may be in any language or phrasing. Normalize it to canonical values before proceeding.
+
+**`command`** — map the user's intent to the canonical value using the table below. Match semantically, not literally.
+
+| Intent signals (any language / phrasing) | Canonical `command` |
+|---|---|
+| test, tests, ejecuta los test, correr las pruebas, pasar las pruebas, run tests, see if tests pass, probar, run the test suite, lanza los tests | `test` |
+| build, compile, compila, construye, lanza el build, compilar, build the project | `build` |
+| run, correr, ejecutar, start, iniciar, launch, arrancar | `run` |
+| package, empaquetar, empaqueta, crear artefacto, crear paquete | `package` |
+| install, instala, instalar | `install` |
+| deploy, desplegar, despliega, publicar | `deploy` |
+| clean, limpiar, limpia | `clean` |
+| migrate / modernize / refactor / apply OpenRewrite / aplicar openrewrite / migrar / modernizar con openrewrite | `apply openReWrite` |
+
+**`project_name`** — extract the target project name from common patterns in any language:
+- English: `project X`, `for project X`, `on project X`, `in project X`
+- Spanish: `del proyecto X`, `para el proyecto X`, `en el proyecto X`, `el proyecto X`
+- Bare name at end of sentence: `... Proyecto-java-8-legacy`
+
+**`os`**: `windows` if Windows/drive letters/backslashes; `mac` if macOS mentioned; `linux` otherwise (default).
 
 ### Step 2 — Locate the project
 

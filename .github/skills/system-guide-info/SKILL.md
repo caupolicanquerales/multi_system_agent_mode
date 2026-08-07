@@ -106,12 +106,12 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    A[User message] --> B{Routing}
-    B -->|report/analyze/inspect/migrate| C[Report Flow → TechReporter]
-    B -->|apply plan/implement changes| D[Refactoring Flow → TechExecuter]
-    B -->|build/test/run/package/deploy| E[Command Flow → CmdExtractor → CmdGenerator]
-    B -->|help/explain/guide| F[Guide Flow → SystemGuider]
-    B -->|anything else| G[Answer directly]
+    A[User message] --> B{Orchestrator: what is the primary goal?}
+    B -->|Execute action on project — run/build/test/deploy in any language| E[Command Flow → CmdExtractor → CmdGenerator]
+    B -->|Analyze/inspect/generate migration report| C[Report Flow → TechReporter]
+    B -->|Apply existing migration plan| D[Refactoring Flow → TechExecuter]
+    B -->|Learn about the system / help / guide| F[Guide Flow → SystemGuider]
+    B -->|None of the above| G[Answer directly]
 ```
 
 ## Example Invocation Payloads

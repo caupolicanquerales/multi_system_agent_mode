@@ -24,8 +24,13 @@ Legacy `JAVA21_REFACTORING_PLAN.md` and `SPRINGBOOT3_MIGRATION_PLAN.md` forms al
 
 ### Step 1 — Execute (single terminal call)
 
-Run exactly **one** `run_in_terminal` call:
+⛔ Never probe for Node.js before running. Do NOT call `Get-Command`, `where.exe`, `Test-Path`, `Get-ChildItem`, or any variant. PATH is repaired inline by the Windows rule below.
 
+**Windows (PowerShell):**
+```powershell
+$env:PATH += ";$env:ProgramFiles\nodejs;$env:APPDATA\npm"; node .github/tools/apply-plan.js --input="<absolute_path_to_MIGRATION_PLAN.md>" --projectPath="<absolute_path_to_project_root>"
+```
+**Linux / macOS:**
 ```bash
 node .github/tools/apply-plan.js \
   --input="<absolute_path_to_MIGRATION_PLAN.md>" \
