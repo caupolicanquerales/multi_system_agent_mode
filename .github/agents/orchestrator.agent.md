@@ -15,6 +15,8 @@ agents:
   name: TechnicalReporter
 - path: technical_executer.agent.md
   name: TechnicalExecuter
+- path: system_guide.agent.md
+  name: SystemGuider
 
 Load [orchestrator-rules](.github/skills/orchestrator/SKILL.md) at the start of every interaction and follow all rules there throughout the entire workflow.
 
@@ -42,7 +44,17 @@ Load [orchestrator-rules](.github/skills/orchestrator/SKILL.md) at the start of 
 | functional report / migration report / java 21 report / analyze\|inspect\|scan\|review + project / reporte funcional / analiza / que hay que cambiar | **Report Flow** |
 | apply the plan / implement the plan / execute the refactoring / aplica el reporte / ejecuta los cambios | **Refactoring Flow** |
 | build / compile / package / install / deploy / clean / run / test / apply a tool — on a named project. **When in doubt, use this row.** | **Command Flow** |
+| help / explain / how does this work / guide / what agents / show workflow / cómo funciona / ayuda | **Guide Flow** |
 | anything else | Answer directly. No sub-agent. |
+
+---
+
+## Guide Flow
+
+1. **Call SystemGuider** using the `agent` tool with `name: SystemGuider`. Pass the user's message as-is.
+2. **Surface the response** directly to the user — no transformation, no summarization.
+
+⛔ Do NOT answer guidance questions yourself. Always delegate to SystemGuider.
 
 ---
 
