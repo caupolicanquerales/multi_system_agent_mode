@@ -63,6 +63,6 @@ Apply only the grep patterns that correspond to the active skills.
 4. Scan only files in the Step 2 discovered list; never read excluded paths.
 5. Read-only — never modify any source, config, or build file.
 6. Priority Matrix lists all rules from all active skills; Findings section omits zero-count rules.
-7. Snippets: `Current code` = 2–4 lines only; `Replacement` = same count. No prose inside findings.
-8. `Line` field = single start line (not a range) — required by the Executer for bounded reads.
+7. Snippets: `Current code` and `Replacement` must be complete, functional blocks. Always include variable declarations/initializations required by the block (e.g., `StringBuilder`, Collections) even if they fall outside the immediate change lines. No prose inside findings.
+8. `Line` field = single start line of the captured `current` snippet (not the pattern match line, not a range). If the snippet was expanded upward to include variable declarations, `line` must point to the first line of that expanded block so the Executer's bounded read covers the full snippet.
 9. Track batch progress with `manage_todo_list`.

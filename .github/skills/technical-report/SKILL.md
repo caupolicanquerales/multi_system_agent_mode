@@ -69,7 +69,7 @@ When a finding is confirmed for rule N in skill S:
 1. **Check cache first.** If rule N of skill S was already extracted this session, use the cached text — never re-read.
 2. **If not cached:** `grep_search` the skill file for `"### N."` to get its line number, then `read_file [match_line, match_line + 60]`. Store result in session cache.
 3. **Validate** the finding against the rule's `Before` pattern from the extracted snippet.
-4. **Record:** file path, start line, rule ID, current code (2–4 lines), suggested replacement (same line count), Effort (Low/Med/High), Risk (Low/Med/High).
+4. **Record:** file path, **start line** (= first line of the captured `current` snippet — not the grep match line; if the snippet was expanded upward to include variable declarations, use that earlier line number), rule ID, current code (complete functional block including required variable declarations/initializations, e.g., `StringBuilder`, Collections, even if they fall outside the immediate match lines), suggested replacement (same scope and same starting line), Effort (Low/Med/High), Risk (Low/Med/High).
 5. Collapse more than 5 identical findings of the same rule in one file: `"Pattern repeated N times. Showing first occurrence."`.
 
 **Chain-of-thought per file:** `"[skill] Rule N: line X — found/not found"`. No verbose narration.

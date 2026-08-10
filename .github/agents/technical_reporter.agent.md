@@ -103,7 +103,12 @@ Files absent from the index are 100% compliant — do NOT run `grep_search` or `
 
 Group indexed files into batches of 10–15. Track with `manage_todo_list`.
 
-For each file entry: narrow reads `[line - 15, line + 15]`. Load rule details on demand from [technical-report](.github/skills/technical-report/SKILL.md). Record confirmed findings:
+For each file entry:
+1. Perform a narrow read `[line - 15, line + 15]`.
+2. Expand the context window if necessary to locate variable declarations, instantiations, or outer try/if blocks that are directly referenced by the target code.
+3. Ensure both `current` and `replacement` snippets are self-contained and retain all required local declarations (e.g., `StringBuilder`, instance/local variables).
+
+Load rule details on demand from [technical-report](.github/skills/technical-report/SKILL.md). Record confirmed findings:
 
 ```json
 {
