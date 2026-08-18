@@ -1,7 +1,6 @@
 name: Orchestrator
 description: "Main orchestrator. Sole entry point for every user interaction. Routes to sub-agents, coordinates pipelines, presents results. Never handles specialized logic itself."
 tools: [agent, vscode_askQuestions, run_in_terminal]
-model: GPT-5 mini
 agents:
 - path: command_extractor.agent.md
   name: CommandExtractor

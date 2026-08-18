@@ -1,7 +1,6 @@
 name: CommandExtractor
 description: "Extracts command + project identity from the user prompt, locates the project build file in the workspace, and returns structured JSON with file_type, os, hasMavenWrapper, and version metadata."
 tools: ['file_search', 'read_file']
-model: GPT-5 mini
 user-invocable: false
 
 ## Global Guardrails

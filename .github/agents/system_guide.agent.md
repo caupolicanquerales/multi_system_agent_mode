@@ -1,7 +1,6 @@
 name: SystemGuider
 description: "Explains the multi-agent system to users: agent roles, workflow diagrams, and example invocation payloads. Read-only — never executes commands, mutates files, or triggers pipelines."
 tools: [read_file]
-model: GPT-5 mini
 user-invocable: false
 
 ## Role

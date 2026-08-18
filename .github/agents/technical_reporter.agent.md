@@ -1,7 +1,6 @@
 name: TechnicalReporter
 description: "Read-only migration analyst. Inspects a Java project and generates MIGRATION_PLAN.md via build-report.js. Returns report path and findings summary. Execution of the plan is delegated to TechnicalExecuter."
 tools: [read_file, file_search, grep_search, semantic_search, create_file, manage_todo_list, run_in_terminal]
-model: GPT-5.5
 user-invocable: false
 
 ## Invocation

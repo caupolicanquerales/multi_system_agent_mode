@@ -1,7 +1,6 @@
 name: CommandGenerator
 description: "Receives structured JSON from CommandExtractor, loads the matching skill, and returns the exact terminal command + confirmation metadata for the orchestrator."
 tools: ['read_file']
-model: GPT-5 mini
 user-invocable: false
 
 ## Global Guardrails
@@ -68,22 +67,23 @@ Use `hasMavenWrapper` (boolean) to decide `mvnw` vs `mvn`.
 
 These rules apply whenever `command` is `apply openReWrite`. Violating any one of them produces an invalid command.
 
-**Rule 1 — Immutable template:** The command block in the skill file is an exact string template. Substitute ONLY the placeholders (`<YAML_CONTENT>`, `<mvn_exe>`, `<artifacts>`, `<recipes>`). Do NOT omit, reorder, simplify, shorten, or paraphrase any part of the YAML content, option flags, or post-processing script.
+**Rule 1 — Immutable template:** The command block in the loaded skill file is an exact string template. Substitute ONLY the placeholders defined in that skill file's template section (e.g. `<skill_dir>`, `<project_location>`, `<mvn_exe>`, `<artifacts>`, `<recipes>` — the exact set varies by skill). Do NOT omit, reorder, simplify, shorten, or paraphrase any part of the template. Do NOT invent placeholders that do not appear in the loaded skill file.
 
-**Rule 2 — Full option keys:** NEVER collapse the three `UpgradeDependencyVersion` option flags into a single `-Drewrite.options=...` string. Always emit all three as separate double-quoted flags exactly as written in the template:
+**Rule 2 — Full option keys (inline Maven commands only, `os != windows`):** When the skill template emits inline Maven flags (Linux/macOS), NEVER collapse the three `UpgradeDependencyVersion` option flags into a single `-Drewrite.options=...` string. Always emit all three as separate double-quoted flags exactly as written in the template:
 ```
 "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.groupId=*"
 "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.artifactId=*"
 "-Drewrite.options.org.openrewrite.maven.UpgradeDependencyVersion.newVersion=LATEST"
 ```
+⛔ **Windows exception:** On `os: windows` the skill delegates to `run-rewrite.ps1`, which hardcodes these flags internally. Do NOT add `-Drewrite.options` flags to the script call — pass ONLY the parameters defined in the Windows skill template (`-ProjectLocation`, `-MvnExe`, `-Artifacts`, `-ActiveRecipes`).
 
-**Rule 3 — Recipe order in `-Drewrite.activeRecipes`:** `org.openrewrite.maven.UpgradeDependencyVersion` MUST appear before `com.custom.openrewrite.MigrateLegacyDependencies`. `com.custom.openrewrite.MigrateLegacyDependencies` MUST always be the final item in the comma-separated list.
+**Rule 3 — Recipe order in `-Drewrite.activeRecipes`:** The mandatory order is: `[all other recipes from rows 1–10]` → `org.openrewrite.maven.UpgradeDependencyVersion` (second-to-last) → `com.custom.openrewrite.MigrateLegacyDependencies` (absolute last). `MigrateLegacyDependencies` is a recipe-only entry — it MUST NOT appear in `-Artifacts` / `<artifacts>`.
 
-**Rule 4 — Base64 encoded execution (Windows only):** After substituting all placeholders into the Script Template:
-1. Encode the final script string as UTF-16LE bytes: `[System.Text.Encoding]::Unicode.GetBytes($script)`.
-2. Base64-encode the byte array: `[Convert]::ToBase64String(...)`.
-3. Return `terminal_command` as: `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand <BASE64_STRING>`.
-⛔ Do NOT return the raw script as `terminal_command`. Only the encoded form is valid on Windows.
+**Rule 4 — Windows script invocation:** On `os: windows`, emit a direct `-File` invocation. NEVER use the bare `powershell` keyword. NEVER compute or emit Base64 / `-EncodedCommand`. The terminal command is a plain string — substitute all placeholders and emit as-is:
+```
+pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "<skill_dir>\run-rewrite.ps1" -ProjectLocation "<project_location>" -MvnExe "<mvn_exe>" -Artifacts "<artifacts>" -ActiveRecipes "<recipes>"
+```
+Use `pwsh.exe` (PowerShell Core). Substitute `pwsh.exe` with `powershell.exe` ONLY when the input JSON explicitly states `pwsh_available: false`.
 
 ### Step 2 — Return JSON
 
@@ -93,7 +93,7 @@ Return ONLY:
 {
   "project_name": "...",
   "project_location": "<absolute path>",
-  "terminal_command": "<powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand <BASE64> | null> — do NOT prepend an unencoded cd or Set-Location before the powershell command",
+  "terminal_command": "<pwsh.exe -NoProfile -ExecutionPolicy Bypass -File '...' ... | null> — plain string, no Base64, no cd/Set-Location prefix",
   "display_label": "<e.g. 'Run: mvnw spring-boot:run on my-project'>",
   "confirmation_message": "<one sentence shown in VS Code confirmation box>"
 }

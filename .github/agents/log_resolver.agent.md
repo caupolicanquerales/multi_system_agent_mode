@@ -1,7 +1,6 @@
 name: LogResolver
 description: "Receives LogAnalyzer's defect list, reads each affected file, computes the minimal fix, applies it via diff view for user review (Keep/Undo), and returns a resolution summary."
-tools: ['read_file', 'replace_string_in_file', 'vscode/askQuestions', 'run_vscode_command']
-model: Claude Haiku 4.5
+tools: ['read_file', 'replace_string_in_file', 'vscode/askQuestions', 'runvscode_command']
 user-invocable: false
 
 ## Input

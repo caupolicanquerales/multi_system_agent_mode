@@ -12,7 +12,7 @@ Valid only for `file_type: "maven"` and `os: "windows"`. Otherwise: `terminal_co
 
 ## Recipe Selection
 
-Aliases: `j.migrate`=`org.openrewrite.java.migrate` | `j.spring`=`org.openrewrite.java.spring` | `j.test`=`org.openrewrite.java.testing` | `j.log`=`org.openrewrite.java.logging` | `a.commons`=`org.openrewrite.apache.commons` | `mvnR`=`org.openrewrite.maven`. Expand to full FQCNs. Artifact coord prefix: `org.openrewrite.recipe:`. Deduplicate.
+Aliases: `j.migrate`=`org.openrewrite.java.migrate` | `j.spring`=`org.openrewrite.java.spring` | `j.test`=`org.openrewrite.java.testing` | `j.log`=`org.openrewrite.java.logging` | `a.commons`=`org.openrewrite.apache.commons` | `mvnR`=`org.openrewrite.maven`. Expand recipe aliases to full FQCNs. **Artifact coordinate format:** prepend `org.openrewrite.recipe:` to every raw artifact ID in the table (e.g. `rewrite-migrate-java:RELEASE` → `org.openrewrite.recipe:rewrite-migrate-java:RELEASE`). This prefix applies ONLY to rows 1–10; `com.custom.openrewrite.MigrateLegacyDependencies` is a recipe-only entry with NO artifact coordinate — never add an artifact for it. Deduplicate artifacts (first-occurrence order).
 
 | # | Condition | `<artifacts>` (dedup) | `<recipes>` |
 |---|---|---|---|
@@ -25,21 +25,26 @@ Aliases: `j.migrate`=`org.openrewrite.java.migrate` | `j.spring`=`org.openrewrit
 | 7 | `springBootVersion` absent AND `javaVersion` < 11 AND `javaxServletVersion` absent | `rewrite-migrate-java:RELEASE` | `j.migrate.jakarta.JavaxMigrationToJakarta` |
 | 8 | `javaVersion` < 21 | `rewrite-logging-frameworks:RELEASE`, `rewrite-apache:RELEASE` | `j.log.slf4j.Log4jToSlf4j`, `a.commons.lang.ApacheCommonsStringUtilsRecipes`, `a.commons.collections.UpgradeApacheCommonsCollections_3_4` |
 | 10 | Row 5 active OR `springBootVersion` major >= 3 OR (`springBootVersion` absent AND `springFrameworkVersion` >= 5) | `rewrite-spring:RELEASE` | `j.spring.boot3.SpringFoxToSpringDoc` |
-| 9 | Any recipe active | *(none)* | Append `mvnR.UpgradeDependencyVersion` last with `-Drewrite.options` wildcards: `groupId=*`, `artifactId=*`, `newVersion=LATEST` |
+| 9 | Any recipe active | *(none)* | Append `mvnR.UpgradeDependencyVersion` second-to-last — it MUST come after all other recipes and immediately before `com.custom.openrewrite.MigrateLegacyDependencies` |
 
-**Constraints:** Rows 4/5 mutually exclusive — emit only one; skip both if `springBootVersion` present. Rows 6/7 emit `JavaxMigrationToJakarta` exactly once. Row 9 requires all three wildcards; never narrow `groupId`. Row 10 must accompany `MigrateLegacyDependencies`.
+**Constraints:** Rows 4/5 mutually exclusive — emit only one; skip both if `springBootVersion` present. Rows 6/7 emit `JavaxMigrationToJakarta` exactly once. Row 10 must accompany `MigrateLegacyDependencies`.
 
-Deduplicate FQCNs (first-occurrence order). Collect into `<artifacts>` and `<recipes>`. Append `com.custom.openrewrite.MigrateLegacyDependencies` last.
+**Final recipe order (strictly enforced):** `[rows 1–10 recipes in evaluation order]` → `org.openrewrite.maven.UpgradeDependencyVersion` (Row 9, second-to-last) → `com.custom.openrewrite.MigrateLegacyDependencies` (absolute last, recipe-only — NO artifact coordinate).
+
+Deduplicate recipes and artifacts (first-occurrence order). Collect prefixed artifact coordinates into `<artifacts>` and fully-qualified recipe names into `<recipes>`.
 
 > **M2:** If Row 4 fired, append to `confirmation_message`: "Re-run `apply openReWrite` to finish the Spring Framework 5.3→6.0 upgrade (Row 5). Do NOT skip."
 
 ## Maven Command Template
 
-Substitute ONLY `<project_location>`, `<mvn_exe>`, `<artifacts>`, `<recipes>` in the line below. Do NOT read or encode any external files.
+Substitute `<project_location>`, `<skill_dir>`, `<mvn_exe>`, `<artifacts>`, `<recipes>`. Do NOT read or encode any external files.
 
 - Without wrapper: `<mvn_exe>` = `mvn`
 - With wrapper: `<mvn_exe>` = `<project_location>\mvnw.cmd`
+- `<skill_dir>` = the directory portion of the absolute path used to read THIS file (i.e., remove `\SKILL.md` from the end of that path). Example: if this file was read from `C:\Users\...\multi_system_agent_mode\.github\skills\open-re-write-mvn-win\SKILL.md`, then `<skill_dir>` = `C:\Users\...\multi_system_agent_mode\.github\skills\open-re-write-mvn-win`.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File 'c:\Users\c.querales.salas\OneDrive - Accenture\Desktop\squad-ia\multi_system_agent_mode\.github\skills\open-re-write-mvn-win\run-rewrite.ps1' -ProjectLocation '<project_location>' -MvnExe '<mvn_exe>' -Artifacts '<artifacts>' -ActiveRecipes '<recipes>'
+**Emit the final terminal command (Rule 4):** Substitute all placeholders and output this plain string as `terminal_command`. Do NOT compute Base64. Do NOT use `-EncodedCommand`.
 ```
+pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "<skill_dir>\run-rewrite.ps1" -ProjectLocation "<project_location>" -MvnExe "<mvn_exe>" -Artifacts "<artifacts>" -ActiveRecipes "<recipes>"
+```
+Use `pwsh.exe` (PowerShell Core). Substitute with `powershell.exe` ONLY when `pwsh_available: false` is present in the input.

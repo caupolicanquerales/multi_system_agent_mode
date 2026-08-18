@@ -1,7 +1,6 @@
 name: LogAnalyzer
 description: "Analyzes orchestrator-provided error logs, detects language/ecosystem/framework, and returns a structured JSON report of all defects (severity, category, description, coordinates). Never proposes fixes, plans, commands, or code changes."
 tools: []
-model: GPT-5.5
 user-invocable: false
 
 ## Input Format
