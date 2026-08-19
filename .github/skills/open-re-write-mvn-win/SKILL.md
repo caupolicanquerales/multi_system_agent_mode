@@ -25,7 +25,7 @@ Aliases: `j.migrate`=`org.openrewrite.java.migrate` | `j.spring`=`org.openrewrit
 | 7 | `springBootVersion` absent AND `javaVersion` < 11 AND `javaxServletVersion` absent | `rewrite-migrate-java:RELEASE` | `j.migrate.jakarta.JavaxMigrationToJakarta` |
 | 8 | `javaVersion` < 21 | `rewrite-logging-frameworks:RELEASE`, `rewrite-apache:RELEASE` | `j.log.slf4j.Log4jToSlf4j`, `a.commons.lang.ApacheCommonsStringUtilsRecipes`, `a.commons.collections.UpgradeApacheCommonsCollections_3_4` |
 | 10 | Row 5 active OR `springBootVersion` major >= 3 OR (`springBootVersion` absent AND (`springFrameworkVersion` >= 5 OR `spring-framework-bom` present in `<dependencyManagement>`)) | `rewrite-spring:RELEASE` | `j.spring.boot3.SpringFoxToSpringDoc` |
-| 9 | Any recipe active | *(none)* | Append `mvnR.UpgradeDependencyVersion` second-to-last — it MUST come after all other recipes and immediately before `com.custom.openrewrite.MigrateLegacyDependencies` |
+| 9 | Any recipe active | `rewrite-openapi:RELEASE` | Append `mvnR.UpgradeDependencyVersion` second-to-last — it MUST come after all other recipes and immediately before `com.custom.openrewrite.MigrateLegacyDependencies` |
 
 **Constraints:** Rows 4/5 mutually exclusive — emit only one; skip both if `springBootVersion` present. Rows 6/7 emit `JavaxMigrationToJakarta` exactly once. Row 10 must accompany `MigrateLegacyDependencies`.
 

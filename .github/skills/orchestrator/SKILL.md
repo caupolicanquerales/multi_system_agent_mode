@@ -20,13 +20,14 @@ user-invocable: false
 
 ## run_in_terminal Rules
 
-- **Always use run_in_terminal with mode: sync and timeout: 300000 (5 minutes).** It returns the full output and exitCode directly when the command completes -- no polling required.
-- **Never show internal agent status messages to the user** (e.g. "moved to background", "awaiting notification", "polling for output"). If run_in_terminal returns no output or fails to retrieve output, silently wait for the terminal notification — do not narrate internal workflow state to the user.
-- **Call run_in_terminal exactly once per workflow -- for the main command only.** Never call it a second time to verify output, check for generated files, or inspect the file system. The exitCode from the first call is the sole signal for success or failure.
+- **Always use run_in_terminal with mode: sync and timeout: 300000 (5 minutes).** It returns the full output and exitCode directly when the command completes — no polling required.
+- **Never send any user-facing message before `run_in_terminal` returns a final `exitCode`.** Do NOT emit progress messages, status updates, or "started" notifications while the command is running or being awaited. The only permitted action after calling `run_in_terminal` is to evaluate its result.
+- **If `run_in_terminal` returns without an `exitCode` (moved to background / partial output only):** end the turn immediately and silently — zero text to the user. Wait for the automatic terminal notification on the next turn. Do NOT narrate internal state (e.g. "El script ha comenzado", "moved to background", "awaiting notification", "polling for output").
+- **Call run_in_terminal exactly once per workflow — for the main command only.** Never call it a second time to verify output, check for generated files, or inspect the file system. The exitCode from the first call is the sole signal for success or failure.
 - **Use run_in_terminal to open files in VS Code** (e.g. code <path>) instead of vscode/runCommand.
 - **Do not add a vscode_askQuestions confirmation before calling run_in_terminal.** The native VS Code security dialog is the single confirmation gate.
-- **Never display the `terminal_command` field to the user** — not before, not after calling run_in_terminal. Only surface the `confirmation_message` returned by CommandGenerator. Displaying the full command wastes tokens and is not actionable for the user.
-- **Never append output-piping operators (`| tail`, `| head`, `| grep`, `2>&1 | ...`) to `terminal_command`.** Piping buffers all output until the process exits, making long-running commands (OpenRewrite, Maven builds, etc.) appear stuck with no live feedback. Run `terminal_command` exactly as returned by CommandGenerator — unmodified.
+- **Never display the `terminal_command` field to the user** — not before, not after run_in_terminal. Only surface the `confirmation_message` returned by CommandGenerator.
+- **Never append output-piping operators (`| tail`, `| head`, `| grep`) to `terminal_command` when running standard Maven/Gradle/npm builds.** Exception: Step 3 of the Command Flow explicitly wraps the command with `Tee-Object` (Windows) or `tee` (Linux/macOS) for log capture — that wrapping is mandatory and must not be removed.
 
 ## CommandGenerator Forwarding Rules
 

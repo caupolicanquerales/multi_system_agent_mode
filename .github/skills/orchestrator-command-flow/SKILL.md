@@ -44,17 +44,17 @@ Forward the essential fields per the forwarding rules in the orchestrator-rules 
 
 Display `terminal_command` in a code block. Execute it with output redirected to a temp file so Step 4 can pass the file path directly to `log_analyzer.js` — avoiding all inline string escaping and shell length limits.
 
-Wrap `terminal_command` in the OS-appropriate redirect before calling `run_in_terminal` (mode: sync, timeout: 300000):
+Wrap `terminal_command` in the OS-appropriate redirect before calling `run_in_terminal` (mode: sync, timeout: 600000):
 
 **Linux / macOS:**
 ```bash
 <terminal_command> 2>&1 | tee /tmp/build_log.txt ; exit ${PIPESTATUS[0]}
 ```
-**Windows (PowerShell)** — choose the wrapper based on whether `terminal_command` starts with `powershell`:
+**Windows (PowerShell)** — choose the wrapper based on whether `terminal_command` is an OpenRewrite script invocation:
 
-- **OpenRewrite** (`terminal_command` starts with `pwsh` or `powershell`):
+- **OpenRewrite** (`terminal_command` is a `.ps1` script invocation):
 ```powershell
-<terminal_command> 2>&1 | Tee-Object -FilePath "$env:TEMP\build_log.txt" ; exit $LASTEXITCODE
+& <terminal_command> ; exit $LASTEXITCODE
 ```
 - **Standard commands** (`clean install`, `test`, `build`, etc.):
 ```powershell
@@ -63,10 +63,21 @@ Wrap `terminal_command` in the OS-appropriate redirect before calling `run_in_te
 
 Use `confirmation_message` as explanation and `display_label` as goal.
 
-Evaluate the execution result strictly from the `run_in_terminal` return object:
-- If `exitCode == 0` → follow the success notification rule in the orchestrator-rules skill. Stop.
-- If `exitCode != 0` (or if execution failed) → proceed immediately to **Step 4**.
+**run_in_terminal execution contract (three mandatory behaviors):**
 
+**① Process Blocking — wait for exit code before yielding.**
+After calling `run_in_terminal`, the Orchestrator MUST block its turn until the tool returns a final `exitCode`. Do NOT complete the interaction turn, do NOT yield back to the user, and do NOT emit any output while the process is still running. The turn ends only after `exitCode` is present in the return object.
+
+**② Silent Execution — zero output during run.**
+While waiting for `run_in_terminal` to return, the Orchestrator MUST NOT stream output, read intermediate results, or emit any user-facing message (including "started", "running", or progress updates). Token cost during execution is zero by design.
+
+**③ Post-Execution Inspection — branch strictly on exit code.**
+Evaluate the return object immediately after `run_in_terminal` completes:
+- **No `exitCode` in return object** (command moved to background / partial output only): end the turn silently — zero text to the user. The automatic terminal notification on the next turn will resume the workflow.
+- **`exitCode == 0`**: follow the success notification rule in the orchestrator-rules skill. Stop.
+- **`exitCode != 0`**: read the temp log file written by `Tee-Object` / `tee`, apply log reduction (extract all ERROR / FATAL / Exception / FAILED / Caused by: / stack-trace lines, then append the last 150 lines; deduplicate consecutive identical lines), and proceed immediately to **Step 4** with the reduced log.
+
+⛔ Do NOT send any message to the user before, during, or while waiting for `run_in_terminal` to return.
 ⛔ Do NOT execute any terminal commands (`type`, `cat`, `Get-Content`) or ask for extra terminal permissions to check if the command succeeded.
 
 **Step 4 — Compact logs via log_analyzer.js**
