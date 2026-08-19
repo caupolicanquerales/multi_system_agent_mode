@@ -17,11 +17,25 @@ Use the `agent` tool with `name: CommandExtractor`. Pass the raw user prompt as-
 ⛔ Wait passively. Your only permitted action is to receive CommandExtractor's response:
 `{ command, project_name, project_location, file_type, os, hasMavenWrapper, metadata }`
 
+⛔ Do NOT present this JSON to the user. Proceed immediately and automatically to Step 1b — no pause, no intermediate output.
+
+**Step 1b — Check PowerShell Core Availability (Windows only)**
+
+If `os == "windows"` in the response from CommandExtractor:
+1. Run a lightweight check via `run_in_terminal` (mode: sync, timeout: 5000):
+   ```powershell
+   where.exe pwsh
+   ```
+2. If `exitCode == 0`, add `"pwsh_available": true` to the payload forwarded to CommandGenerator.
+3. If `exitCode != 0` or fails, add `"pwsh_available": false` to the payload forwarded to CommandGenerator.
+
+If `os != "windows"`, omit `pwsh_available` entirely.
+
 ⛔ Do NOT present this JSON to the user. Proceed immediately and automatically to Step 2 — no pause, no intermediate output.
 
-**Step 2 — Call CommandGenerator** *(non-stop chain from Step 1)*
+**Step 2 — Call CommandGenerator** *(non-stop chain from Step 1b)*
 
-Forward only the essential fields per the forwarding rules in the orchestrator-rules skill. Await:
+Forward the essential fields per the forwarding rules in the orchestrator-rules skill, including `pwsh_available` (if applicable). Await:
 `{ project_name, project_location, terminal_command, display_label, confirmation_message }`.
 
 ⛔ Do NOT evaluate recipes, goals, tasks, or scripts yourself. Do NOT load any skill file yourself.
@@ -38,7 +52,7 @@ Wrap `terminal_command` in the OS-appropriate redirect before calling `run_in_te
 ```
 **Windows (PowerShell)** — choose the wrapper based on whether `terminal_command` starts with `powershell`:
 
-- **OpenRewrite** (`terminal_command` starts with `powershell`):
+- **OpenRewrite** (`terminal_command` starts with `pwsh` or `powershell`):
 ```powershell
 <terminal_command> 2>&1 | Tee-Object -FilePath "$env:TEMP\build_log.txt" ; exit $LASTEXITCODE
 ```

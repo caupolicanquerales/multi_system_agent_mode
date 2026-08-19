@@ -32,7 +32,7 @@ user-invocable: false
 
 Do **not** forward the full CommandExtractor JSON to CommandGenerator. Extract and pass only these essential fields:
 
-- command, project_name, project_location, file_type, os, hasMavenWrapper
+- command, project_name, project_location, file_type, os, hasMavenWrapper, pwsh_available (if applicable)
 - From `metadata` (flat): javaVersion, nodeVersion, springBootVersion, springFrameworkVersion, javaxServletVersion, junitVersion, reactVersion, angularVersion, vueVersion, nextVersion, nestjsVersion, expressVersion
 
 Omit any other non-essential fields.

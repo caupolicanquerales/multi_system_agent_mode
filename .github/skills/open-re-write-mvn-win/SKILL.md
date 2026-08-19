@@ -9,7 +9,7 @@ user-invocable: false
 ## Scope
 
 Valid only for `file_type: "maven"` and `os: "windows"`. Otherwise: `terminal_command: null`, `confirmation_message: "ERROR: This skill is only for Maven projects on Windows."`. If no recipe matches: `terminal_command: null`, `confirmation_message: "ERROR: No applicable OpenRewrite recipes found for the given metadata."`.
-
+}
 ## Recipe Selection
 
 Aliases: `j.migrate`=`org.openrewrite.java.migrate` | `j.spring`=`org.openrewrite.java.spring` | `j.test`=`org.openrewrite.java.testing` | `j.log`=`org.openrewrite.java.logging` | `a.commons`=`org.openrewrite.apache.commons` | `mvnR`=`org.openrewrite.maven`. Expand recipe aliases to full FQCNs. **Artifact coordinate format:** prepend `org.openrewrite.recipe:` to every raw artifact ID in the table (e.g. `rewrite-migrate-java:RELEASE` → `org.openrewrite.recipe:rewrite-migrate-java:RELEASE`). This prefix applies ONLY to rows 1–10; `com.custom.openrewrite.MigrateLegacyDependencies` is a recipe-only entry with NO artifact coordinate — never add an artifact for it. Deduplicate artifacts (first-occurrence order).
