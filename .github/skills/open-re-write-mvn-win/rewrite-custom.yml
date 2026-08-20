@@ -2,7 +2,7 @@
 type: specs.openrewrite.org/v1beta/recipe
 name: com.custom.openrewrite.MigrateLegacyDependencies
 recipeList:
-  # 1. Add managed BOMs first — all subsequent steps benefit from BOM-managed versions
+  # 1. Inyección de BOMs gestionados
   - org.openrewrite.maven.AddManagedDependency:
       groupId: org.springframework
       artifactId: spring-framework-bom
@@ -16,10 +16,48 @@ recipeList:
       type: pom
       scope: import
 
-  # 2. Migration and replacements
-  - org.openrewrite.java.dependencies.RemoveDependency:
-      groupId: junit
-      artifactId: junit
+  # 2. Migración del código Java (Sustitución de anotaciones e imports de Swagger / Springfox)
+  - org.openrewrite.java.RemoveAnnotation:
+      annotationPattern: "@springfox.documentation.swagger2.annotations.EnableSwagger2"
+
+  # Mapeo directo de tipos antiguos a OpenAPI v3
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: io.swagger.annotations.Api
+      newFullyQualifiedTypeName: io.swagger.v3.oas.annotations.tags.Tag
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: io.swagger.annotations.ApiOperation
+      newFullyQualifiedTypeName: io.swagger.v3.oas.annotations.Operation
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: io.swagger.annotations.ApiParam
+      newFullyQualifiedTypeName: io.swagger.v3.oas.annotations.Parameter
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: springfox.documentation.spring.web.plugins.Docket
+      newFullyQualifiedTypeName: io.swagger.v3.oas.models.OpenAPI
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: springfox.documentation.builders.ApiInfoBuilder
+      newFullyQualifiedTypeName: io.swagger.v3.oas.models.info.Info
+
+  # 3. Sustitución e Intercambio de Dependencias en el POM
+  - org.openrewrite.java.dependencies.ChangeDependency:
+      oldGroupId: io.springfox
+      oldArtifactId: springfox-swagger2
+      newGroupId: org.springdoc
+      newArtifactId: springdoc-openapi-starter-webmvc-ui
+      newVersion: 2.6.0
+  - org.openrewrite.java.dependencies.ChangeDependency:
+      oldGroupId: commons-lang
+      oldArtifactId: commons-lang
+      newGroupId: org.apache.commons
+      newArtifactId: commons-lang3
+      newVersion: 3.14.0
+  - org.openrewrite.java.dependencies.ChangeDependency:
+      oldGroupId: javax.servlet
+      oldArtifactId: servlet-api
+      newGroupId: jakarta.servlet
+      newArtifactId: jakarta.servlet-api
+      newVersion: 6.0.0
+
+  # Actualizaciones explícitas de versiones gestionadas
   - org.openrewrite.java.dependencies.UpgradeDependencyVersion:
       groupId: com.fasterxml.jackson.core
       artifactId: jackson-databind
@@ -35,30 +73,17 @@ recipeList:
       artifactId: tomcat-embed-core
       newVersion: 10.1.25
       overrideManagedVersion: true
-  - org.openrewrite.java.dependencies.ChangeDependency:
-      oldGroupId: commons-lang
-      oldArtifactId: commons-lang
-      newGroupId: org.apache.commons
-      newArtifactId: commons-lang3
-      newVersion: 3.14.0
-  - org.openrewrite.java.dependencies.ChangeDependency:
-      oldGroupId: io.springfox
-      oldArtifactId: springfox-swagger2
-      newGroupId: org.springdoc
-      newArtifactId: springdoc-openapi-starter-webmvc-ui
-      newVersion: 2.6.0
-  - org.openrewrite.java.dependencies.ChangeDependency:
-      oldGroupId: javax.servlet
-      oldArtifactId: servlet-api
-      newGroupId: jakarta.servlet
-      newArtifactId: jakarta.servlet-api
-      newVersion: 6.0.0
+
+  # 4. Eliminación de dependencias antiguas
+  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: junit, artifactId: junit}
   - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-swagger-ui}
   - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-core}
   - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.springfox, artifactId: springfox-bean-validators}
   - org.openrewrite.java.dependencies.RemoveDependency: {groupId: com.google.guava, artifactId: guava}
+  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.swagger, artifactId: swagger-annotations}
+  - org.openrewrite.java.dependencies.RemoveDependency: {groupId: io.swagger, artifactId: swagger-models}
 
-  # 3. Re-declare properties so ${spring.version} resolves to the BOM version before version stripping
+  # 5. Normalización de propiedades en POM
   - org.openrewrite.maven.AddProperty:
       key: spring.version
       value: "6.1.14"
@@ -67,71 +92,16 @@ recipeList:
       key: springframework.version
       value: "6.1.14"
       preserveExistingValue: false
-
-  # 4. Strip explicit <version> tags now that ${spring.version} == 6.1.14 == BOM version
   - org.openrewrite.maven.RemoveRedundantDependencyVersions:
       groupPattern: org.springframework
       artifactPattern: "*"
   - org.openrewrite.maven.RemoveRedundantDependencyVersions:
       groupPattern: jakarta.servlet
       artifactPattern: jakarta.servlet-api
+  - org.openrewrite.maven.RemoveProperty: {propertyName: spring.version}
+  - org.openrewrite.maven.RemoveProperty: {propertyName: springframework.version}
+  - org.openrewrite.maven.RemoveProperty: {propertyName: log4j.version}
+  - org.openrewrite.maven.RemoveProperty: {propertyName: junit.version}
 
-  # 5. Remove now-unused property declarations
-  - org.openrewrite.maven.RemoveProperty:
-      propertyName: spring.version
-  - org.openrewrite.maven.RemoveProperty:
-      propertyName: springframework.version
-  - org.openrewrite.maven.RemoveProperty:
-      propertyName: log4j.version
-  - org.openrewrite.maven.RemoveProperty:
-      propertyName: junit.version
-
-  # 6. Run Swagger2ToOpenApi FIRST so it handles both type renaming and attribute mapping (value->summary, code->responseCode)
-  - org.openrewrite.java.swagger.Swagger2ToOpenApi
-
-  # Springfox config / builder types → SpringDoc / Swagger v3 equivalents (non-annotation model classes only)
-  - org.openrewrite.java.RemoveAnnotation:
-      annotationPattern: "@springfox.documentation.swagger2.annotations.EnableSwagger2"
-
-  # 7. Retain ChangeType ONLY for non-annotation model classes where needed
-  - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: springfox.documentation.spring.web.plugins.Docket
-      newFullyQualifiedTypeName: io.swagger.v3.oas.models.OpenAPI
-  - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: springfox.documentation.builders.ApiInfoBuilder
-      newFullyQualifiedTypeName: io.swagger.v3.oas.models.info.Info
-  - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: springfox.documentation.service.ApiInfo
-      newFullyQualifiedTypeName: io.swagger.v3.oas.models.info.Info
-  - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: springfox.documentation.service.Contact
-      newFullyQualifiedTypeName: io.swagger.v3.oas.models.info.Contact
-  - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: springfox.documentation.annotations.ApiIgnore
-      newFullyQualifiedTypeName: io.swagger.v3.oas.annotations.Hidden
-
-  # Drop the old Swagger v1/v2 annotations jar — springdoc brings swagger-annotations v3 transitively
-  - org.openrewrite.java.dependencies.RemoveDependency:
-      groupId: io.swagger
-      artifactId: swagger-annotations
-  - org.openrewrite.java.dependencies.RemoveDependency:
-      groupId: io.swagger
-      artifactId: swagger-models
-
-  # Explicitly inject OpenAPI v3 annotation imports after type renaming
-  - org.openrewrite.java.AddImport:
-      type: io.swagger.v3.oas.annotations.tags.Tag
-  - org.openrewrite.java.AddImport:
-      type: io.swagger.v3.oas.annotations.Operation
-  - org.openrewrite.java.AddImport:
-      type: io.swagger.v3.oas.annotations.responses.ApiResponse
-  - org.openrewrite.java.AddImport:
-      type: io.swagger.v3.oas.annotations.Parameter
-  # Add missing models for OpenAPI bean configuration
-  - org.openrewrite.java.AddImport:
-      type: io.swagger.v3.oas.models.info.Info
-  - org.openrewrite.java.AddImport:
-      type: io.swagger.v3.oas.models.info.Contact
-
-  # 8. Clean up orphan imports left over from removed Springfox references
+  # 6. Limpieza final de imports huérfanos
   - org.openrewrite.java.RemoveUnusedImports
