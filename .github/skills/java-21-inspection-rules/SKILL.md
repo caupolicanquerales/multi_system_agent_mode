@@ -204,3 +204,14 @@ For modular projects:
 - Eliminate split packages across modules.
 - Reflective access to private members requires explicit `opens`.
 
+### 21 — Java Time API (JSR-310)
+Replace `java.util.Date`, `java.util.Calendar`, and `java.text.SimpleDateFormat` with `java.time.LocalDate`, `Instant`, and `DateTimeFormatter`.
+
+### 22 — Modern HTTP Client API
+Replace legacy `HttpURLConnection` and manual stream parsing with `java.net.http.HttpClient` and `HttpRequest`.
+
+### 23 — Modern NIO File Operations
+Replace legacy `FileReader`, `FileWriter`, `BufferedReader`, and manual `StringBuilder` loops with `java.nio.file.Files` methods (e.g., `Files.readString(path)`, `Files.writeString(path, content)`).
+
+### 24 — DTO Record Conversion
+Actively scan packages named `*.dto` or classes named `*DTO`. Convert all read-only data carriers with private final fields, getters, `equals`, `hashCode`, and `toString` directly into `public record`.

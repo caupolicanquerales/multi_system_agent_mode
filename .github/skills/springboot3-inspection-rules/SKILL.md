@@ -202,3 +202,29 @@ Replace every `javax.*` import in every `.java` file. Also update any XML/proper
 
 `@SpringBootTest`, `@AutoConfigureMockMvc`, `TestRestTemplate` — unchanged.
 
+---
+
+### 17 — Legacy Servlet to Spring MVC Controller
+
+| Old Pattern | New Pattern | Notes |
+|---|---|---|
+| `public class MyServlet extends HttpServlet` | `@RestController` or `@Controller` | Convert `doGet`/`doPost` methods to `@GetMapping`/`@PostMapping` |
+| `HttpServletRequest.getParameter(...)` | `@RequestParam` or `@RequestBody` | Annotate controller parameters directly |
+| `HttpServletResponse.getWriter().write(...)` | Return Domain Objects or `ResponseEntity<T>` | Leverage Spring Boot's automatic Jackson serialization |
+
+---
+
+### 18 — Legacy JDBC DAO to Spring Data JPA / JdbcTemplate
+
+| Old Pattern | New Pattern | Notes |
+|---|---|---|
+| `extends JdbcDaoSupport` | Inject `JdbcTemplate` or use Spring Data `JpaRepository` | Eliminate manual connection management and row mapping loops |
+| Manual `PreparedStatement` & `ResultSet` | `jdbcTemplate.query(...)` or Spring Data interfaces | Boilerplate cleanup |
+
+---
+
+### 19 — XML Configuration to Java-Based Spring Boot `@Configuration`
+
+| Old Pattern | New Pattern | Notes |
+|---|---|---|
+| `web.xml` / `spring-servlet.xml` | `@SpringBootApplication` & `@Configuration` | Remove XML configurations; use `@Bean` methods and `application.yml` |

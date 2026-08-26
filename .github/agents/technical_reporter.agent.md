@@ -68,7 +68,11 @@ Set `active_skills` = `[java21]`, `[springboot3]`, or `[java21, springboot3]`.
 
 Always include: `<project_path>/src/main/java/**/*.java`
 
-If `springboot3` active, also include: `*.properties`, `*.yml`, `*.yaml` under `src/main/resources/`, `pom.xml`, `build.gradle`.
+If `springboot3` active, also include:
+- `*.properties`, `*.yml`, `*.yaml` under `src/main/resources/`
+- `*.xml` under `src/main/resources/` (Spring XML configuration files)
+- `*.xml` under `src/main/webapp/` (legacy web descriptors — `web.xml`, `*-servlet.xml`)
+- `pom.xml`, `build.gradle` (top-level only)
 
 Exclude: `**/target/**`, `**/build/**`, `**/.gradle/**`, `**/out/**`, `**/generated*/**`, `**/protobuf/**`, `**/openapi/**`, `**/mapstruct/**`.
 
@@ -107,7 +111,7 @@ For each file entry:
 2. Expand the context window if necessary to locate variable declarations, instantiations, or outer try/if blocks that are directly referenced by the target code.
 3. Ensure both `current` and `replacement` snippets are self-contained and retain all required local declarations (e.g., `StringBuilder`, instance/local variables).
 
-Load rule details on demand from [technical-report](.github/skills/technical-report/SKILL.md). Record confirmed findings:
+Load rule details on demand from [technical-report](.github/skills/technical-report/SKILL.md). For `springboot3`, treat Rules 3 (`javax→jakarta`), 17 (Legacy Servlets/Controllers), 18 (Legacy DAOs), and 19 (Spring XML Configs) as explicit inspection targets — always confirm hits in these rules before recording findings. Record confirmed findings:
 
 ```json
 {

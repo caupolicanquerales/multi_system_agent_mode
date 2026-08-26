@@ -48,6 +48,18 @@ const REGISTRY = {
       { rule: 15, regex: /Collections\.unmodifiable(?:List|Set|Map)\(/ },
       { rule: 16, regex: /Thread\.stop|SecurityManager|finalize\s*\(\s*\)/ },
       { rule: 18, regex: /new\s+Comparator|new\s+Runnable|new\s+Callable/ },
+      // Rule 19 — Local Static Members: static nested class/interface/enum candidates
+      { rule: 19, regex: /\bstatic\s+(?:class|interface|enum)\s+\w/ },
+      // Rule 20 — Module System: internal sun.* / com.sun.* API usage
+      { rule: 20, regex: /import\s+(?:sun|com\.sun)\.\w/ },
+      // Rule 21 — Java Time API: matches both fully-qualified and standalone legacy date/time types
+      { rule: 21, regex: /\b(?:java\.util\.)?(?:Date|Calendar)\b|\b(?:SimpleDateFormat|DateFormat)\b/ },
+      // Rule 22 — Modern HTTP Client: legacy HttpURLConnection usage
+      { rule: 22, regex: /HttpURLConnection\b|\.openConnection\(\)/ },
+      // Rule 23 — Modern NIO: legacy file I/O stream constructors
+      { rule: 23, regex: /new\s+(?:FileReader|FileWriter|BufferedReader|BufferedWriter)\s*\(/ },
+      // Rule 24 — DTO Record Conversion: classes named *DTO
+      { rule: 24, regex: /\bclass\s+\w+DTO\b/ },
     ],
     CONTENT_PATTERNS: [
       // Rule 1 — Records: public final class ... { ... private final
@@ -62,6 +74,8 @@ const REGISTRY = {
       { rule: 6,  source: '\\+\\s*\\n\\s*"|"""' },
       // Rule 17 — try/finally with .close()
       { rule: 17, source: '}\\s*finally[\\s\\S]*?\\.close\\(\\)' },
+      // Rule 24 — DTO Record Conversion: also covers common VO/model/payload/request/response packages
+      { rule: 24, source: 'package\\s+[\\w.]+\\.(?:dto|vo|model|payload|request|response)\\s*;' },
     ],
   },
   springboot3: {
@@ -73,6 +87,16 @@ const REGISTRY = {
       { rule: 9,  regex: /JobBuilderFactory|StepBuilderFactory/ },
       { rule: 12, regex: /@TypeDef|@Type\s*\(\s*type|GenerationType\.AUTO/ },
       { rule: 15, regex: /springfox/ },
+      // Rule 6  — Spring MVC: removed PathMatchingConfigurationAdapter
+      { rule: 6,  regex: /PathMatchingConfigurationAdapter/ },
+      // Rule 11 — Removed APIs: RestTemplate still works but RestClient is preferred in Spring 6
+      { rule: 11, regex: /\bRestTemplate\b/ },
+      // Rule 13 — Misc: @Timed on controllers requires explicit ObservationRegistry in Boot 3
+      { rule: 13, regex: /@Timed\b/ },
+      // Rule 17 — Legacy Servlet: HttpServlet subclasses should become @Controller
+      { rule: 17, regex: /extends\s+HttpServlet\b|implements\s+(?:Controller|HttpRequestHandler)\b/ },
+      // Rule 18 — Legacy JDBC DAO: JdbcDaoSupport should be replaced with JdbcTemplate injection
+      { rule: 18, regex: /extends\s+(?:JdbcDaoSupport|HibernateDaoSupport|SqlMapClientDaoSupport)\b/ },
     ],
     CONTENT_PATTERNS: [],
   },
@@ -83,8 +107,11 @@ const SPRINGBOOT3_CONFIG_PATTERNS = [
   { rule: 1,  regex: /<java\.version>[0-9]|sourceCompatibility\s*=\s*['"]?[0-9]/ },
   { rule: 2,  regex: /spring-boot.*2\./ },
   { rule: 15, regex: /springfox/ },
-  { rule: 8,  regex: /spring\.redis\.|spring\.elasticsearch\.rest|logging\.file=|logging\.path=|datasource\.initialization-mode/ },
+  { rule: 8,  regex: /spring\.redis\.|spring\.elasticsearch\.rest|logging\.file=|logging\.path=|datasource\.initialization-mode|server\.max-http-header-size|spring\.mvc\.pathmatch\.use-suffix-pattern/ },
+  { rule: 13, regex: /spring\.metrics\./ },
   { rule: 14, regex: /allow-circular-references\s*=\s*true/ },
+  // Rule 19 — XML config files: Spring MVC namespace or web.xml descriptor
+  { rule: 19, regex: /xmlns:(?:mvc|beans)\s*=\s*['"]http:\/\/www\.springframework\.org\/schema|<web-app\b/ },
 ];
 
 // ---------------------------------------------------------------------------
@@ -103,9 +130,11 @@ function parseArgs(argv) {
 // ---------------------------------------------------------------------------
 // File-type predicates (shared by discoverFiles and scanFile)
 // ---------------------------------------------------------------------------
-const isJavaFile   = name => name.endsWith('.java');
-const isConfigFile = name => /\.(properties|ya?ml)$/.test(name);
-const isBuildFile  = name => name === 'pom.xml' || name === 'build.gradle';
+const isJavaFile      = name => name.endsWith('.java');
+const isConfigFile    = name => /\.(properties|ya?ml)$/.test(name);
+const isBuildFile     = name => name === 'pom.xml' || name === 'build.gradle';
+// Spring XML descriptors (web.xml, *-context.xml, *-servlet.xml) — excludes pom.xml
+const isSpringXmlFile = name => name !== 'pom.xml' && name.endsWith('.xml');
 
 // ---------------------------------------------------------------------------
 // Zero-dependency recursive file discovery
@@ -154,6 +183,11 @@ function discoverFiles(projectPath, activeSkills) {
     const resourcesRoot = path.join(projectPath, 'src', 'main', 'resources');
     if (fs.existsSync(resourcesRoot)) {
       files = files.concat(walkDir(resourcesRoot, isConfigFile));
+      files = files.concat(walkDir(resourcesRoot, isSpringXmlFile));
+    }
+    const webAppRoot = path.join(projectPath, 'src', 'main', 'webapp');
+    if (fs.existsSync(webAppRoot)) {
+      files = files.concat(walkDir(webAppRoot, isSpringXmlFile));
     }
     files = files.concat(walkDir(projectPath, isBuildFile).filter(f => {
       // Only top-level pom.xml / build.gradle
@@ -223,8 +257,9 @@ function scanFile(filePath, activeSkills) {
       }
     }
 
-    // --- Config / build file patterns (springboot3 only, all single-line) ---
-    if (skill === 'springboot3' && (isConfig || isBuild)) {
+    // --- Config / build / Spring XML file patterns (springboot3 only, all single-line) ---
+    const isSpringXml = isSpringXmlFile(path.basename(filePath));
+    if (skill === 'springboot3' && (isConfig || isBuild || isSpringXml)) {
       applyLinePatterns(SPRINGBOOT3_CONFIG_PATTERNS, lines, skill, addHit);
     }
   }
