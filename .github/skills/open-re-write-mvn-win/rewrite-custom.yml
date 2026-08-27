@@ -103,5 +103,16 @@ recipeList:
   - org.openrewrite.maven.RemoveProperty: {propertyName: log4j.version}
   - org.openrewrite.maven.RemoveProperty: {propertyName: junit.version}
 
-  # 6. Limpieza final de imports huérfanos
+ # 6. Modernización estructural Java 21 y Spring Boot 3
+  - org.openrewrite.java.migrate.JavaVersion:
+      version: 21
+  - org.openrewrite.java.migrate.javaee.JavaxToJakarta
+  - org.openrewrite.java.migrate.javaee.JavaxAnnotationsToJakartaAnnotations
+  - org.openrewrite.java.spring.boot3.SpringBoot3Upgrade
+  - org.openrewrite.java.migrate.net.MigrateHttpURLConnectionToHttpClient
+  - org.openrewrite.java.migrate.lang.UseRecords
+  - org.openrewrite.java.migrate.lang.var.UseVarForGenerics
+  - org.openrewrite.java.migrate.util.SequencedCollection
+
+  # 7. Limpieza final de imports huérfanos (debe ejecutarse después de toda generación de código)
   - org.openrewrite.java.RemoveUnusedImports

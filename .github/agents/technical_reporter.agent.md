@@ -111,6 +111,10 @@ For each file entry:
 2. Expand the context window if necessary to locate variable declarations, instantiations, or outer try/if blocks that are directly referenced by the target code.
 3. Ensure both `current` and `replacement` snippets are self-contained and retain all required local declarations (e.g., `StringBuilder`, instance/local variables).
 
+**DTO / Record inspection (Rule 1 and Rule 24):**
+- **Full class read required.** Do NOT use the narrow `[line - 15, line + 15]` window for these rules. Read the entire file to locate all fields, constructors, and mutator methods.
+- **Preserve overloaded constructors.** When building the `replacement` snippet for a Record conversion, include every custom or overloaded constructor defined in the source class, rewritten to delegate to `this(...)` using the canonical record constructor.
+
 Load rule details on demand from [technical-report](.github/skills/technical-report/SKILL.md). For `springboot3`, treat Rules 3 (`javax→jakarta`), 17 (Legacy Servlets/Controllers), 18 (Legacy DAOs), and 19 (Spring XML Configs) as explicit inspection targets — always confirm hits in these rules before recording findings. Record confirmed findings:
 
 ```json

@@ -210,8 +210,33 @@ Replace `java.util.Date`, `java.util.Calendar`, and `java.text.SimpleDateFormat`
 ### 22 — Modern HTTP Client API
 Replace legacy `HttpURLConnection` and manual stream parsing with `java.net.http.HttpClient` and `HttpRequest`.
 
+**Inspection boundary — always capture the full method:**
+The `current` snippet MUST span the complete enclosing method (from the method signature line to its closing `}`), including all `try`, `catch`, `else`, and resource-close blocks. Never extract a partial slice that cuts through an open `try` or omits closing braces; partial snippets cannot be matched and applied by the applier.
+
+**Required import replacements:**
+When generating the `replacement` snippet, always prepend the removal of legacy imports and addition of the new ones:
+
+| Remove | Add |
+|---|---|
+| `import java.net.HttpURLConnection;` | `import java.net.http.HttpClient;` |
+| `import java.net.URL;` | `import java.net.http.HttpRequest;` |
+| `import java.io.BufferedReader;` | `import java.net.http.HttpResponse;` |
+| `import java.io.InputStreamReader;` | `import java.net.URI;` |
+| | `import java.time.Duration;` |
+
+The `replacement` code block must include the updated import section followed by the rewritten method. `Duration.ofMillis(...)` requires `java.time.Duration`; `URI.create(...)` requires `java.net.URI` — both must be explicitly listed.
+
+---
+
 ### 23 — Modern NIO File Operations
 Replace legacy `FileReader`, `FileWriter`, `BufferedReader`, and manual `StringBuilder` loops with `java.nio.file.Files` methods (e.g., `Files.readString(path)`, `Files.writeString(path, content)`).
 
+---
+
 ### 24 — DTO Record Conversion
-Actively scan packages named `*.dto` or classes named `*DTO`. Convert all read-only data carriers with private final fields, getters, `equals`, `hashCode`, and `toString` directly into `public record`.
+Actively scan packages named `*.dto` or classes named `*DTO`. Convert data carriers into `public record`. 
+
+**Constructor & Mutator Handling:**
+1. **Overloaded Constructors:** Preserve custom/overloaded constructors by delegating to the canonical constructor via `this(...)`.
+2. **Mutators:** Discard setters (`setX(...)`) as records are immutable; flag caller methods if mutation occurs in callers.
+3. **Getters/Methods:** Omit standard getters/toString/equals/hashCode (generated natively by record).

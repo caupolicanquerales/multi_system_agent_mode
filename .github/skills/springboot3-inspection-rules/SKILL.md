@@ -20,6 +20,8 @@ Spring Boot 3.x requires **Java 17+** and **Jakarta EE 10** (`javax.*` → `jaka
 
 Report each finding with: file path, line number, rule number, current code, suggested replacement.
 
+> **File-creation rules (Rule 19):** also include `target_path` — the absolute path of the new `.java` file to create (e.g. `src/main/java/com/accenture/library/config/WebMvcConfig.java`).
+
 ---
 
 ## Rules
@@ -206,11 +208,23 @@ Replace every `javax.*` import in every `.java` file. Also update any XML/proper
 
 ### 17 — Legacy Servlet to Spring MVC Controller
 
-| Old Pattern | New Pattern | Notes |
+**Controller type selection — inspect before converting:**
+
+| Condition | Target annotation | Response strategy |
 |---|---|---|
-| `public class MyServlet extends HttpServlet` | `@RestController` or `@Controller` | Convert `doGet`/`doPost` methods to `@GetMapping`/`@PostMapping` |
-| `HttpServletRequest.getParameter(...)` | `@RequestParam` or `@RequestBody` | Annotate controller parameters directly |
-| `HttpServletResponse.getWriter().write(...)` | Return Domain Objects or `ResponseEntity<T>` | Leverage Spring Boot's automatic Jackson serialization |
+| Servlet writes JSON / plain text directly (`getWriter().write(...)`, `setContentType("application/json")`) | `@RestController` | Return domain objects or `ResponseEntity<T>`; remove `getWriter()` calls |
+| Servlet forwards to JSP / sets model attributes / returns HTML (`getRequestDispatcher(...).forward(...)`, `request.setAttribute(...)`) | `@Controller` | Return `ModelAndView` or `String` view name; preserve model attributes as `Model` parameters |
+| Servlet mixes both rendering and JSON output | `@Controller` + `@ResponseBody` on JSON methods only | Split into separate handler methods if feasible |
+
+**Parameter migration:**
+
+| Old | New | Condition |
+|---|---|---|
+| `request.getParameter("x")` | `@RequestParam String x` | Always |
+| `request.getInputStream()` / body parsing | `@RequestBody MyDto dto` | Only when content type is `application/json` or `application/xml` — do NOT add `@RequestBody` for form submissions or SSR requests |
+| `request.getAttribute("x")` / `session.getAttribute("x")` | `@SessionAttribute` / `Model` / `HttpSession` injection | Preserve session semantics |
+
+**Do NOT** replace `HttpServletResponse.getWriter().write(...)` with `ResponseEntity<T>` when the servlet is rendering an HTML view — that write call is the SSR output and must be migrated to a `ModelAndView` return instead.
 
 ---
 
@@ -225,6 +239,26 @@ Replace every `javax.*` import in every `.java` file. Also update any XML/proper
 
 ### 19 — XML Configuration to Java-Based Spring Boot `@Configuration`
 
-| Old Pattern | New Pattern | Notes |
+**Source vs. target location — XML files are never edited in-place:**
+
+XML descriptors (`web.xml`, `*-servlet.xml`, `*-context.xml`) live under `src/main/webapp/WEB-INF/` or `src/main/resources/`. Java `@Configuration` replacements must be created as new `.java` files under `src/main/java/<package>/`. The reporter must **never** place a `replacement` snippet inside the XML file's own `current` context; instead, record two separate fields:
+
+- `current` — the XML file path and the relevant XML fragment being superseded.
+- `replacement` — a **complete, compilable Java class** with:
+  - Explicit `package` statement matching the project's base package (derived from existing source files).
+  - All required `import` statements.
+  - All `@Bean` methods reconstructed from the XML `<bean>` definitions found in the source file.
+  - `target_path` field set to the absolute path where the new `.java` file must be created (e.g., `src/main/java/com/accenture/library/config/WebMvcConfig.java`).
+
+**Mapping table:**
+
+| XML construct | Java equivalent | Target class |
 |---|---|---|
-| `web.xml` / `spring-servlet.xml` | `@SpringBootApplication` & `@Configuration` | Remove XML configurations; use `@Bean` methods and `application.yml` |
+| `<context:component-scan base-package="..."/>` | `@SpringBootApplication` (already scans) | `LibraryApplication.java` — no change needed if present |
+| `<mvc:annotation-driven/>` | `@EnableWebMvc` on `@Configuration` class — **⚠ Warning:** Spring Boot auto-configures MVC by default; adding `@EnableWebMvc` disables Boot's auto-configuration. Only use it when full manual MVC control is required; otherwise omit it and rely on `WebMvcConfigurer` alone. | `WebMvcConfig.java` |
+| `<mvc:resources mapping="..." location="..."/>` | `registry.addResourceHandler(...)` in `WebMvcConfigurer` | `WebMvcConfig.java` |
+| `<bean class="...ViewResolver">` | `@Bean InternalResourceViewResolver` | `WebMvcConfig.java` |
+| `<servlet>` + `<servlet-mapping>` in `web.xml` | Handled by Spring Boot's embedded container — **delete only**, no Java replacement required |
+| `<filter>` / `<listener>` in `web.xml` | `@Bean FilterRegistrationBean` / `@Bean ServletListenerRegistrationBean` | `AppConfig.java` |
+
+**`web.xml` deletion rule:** Mark `web.xml` for deletion (set `effort: High`, `risk: High`). Do NOT generate a Java replacement for `<servlet>` / `<servlet-mapping>` entries — Spring Boot's embedded Tomcat handles dispatch automatically.

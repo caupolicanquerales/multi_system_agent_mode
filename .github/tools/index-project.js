@@ -58,8 +58,8 @@ const REGISTRY = {
       { rule: 22, regex: /HttpURLConnection\b|\.openConnection\(\)/ },
       // Rule 23 — Modern NIO: legacy file I/O stream constructors
       { rule: 23, regex: /new\s+(?:FileReader|FileWriter|BufferedReader|BufferedWriter)\s*\(/ },
-      // Rule 24 — DTO Record Conversion: classes named *DTO
-      { rule: 24, regex: /\bclass\s+\w+DTO\b/ },
+      // Rule 24 — DTO Record Conversion: classes named *DTO or *Dto (camelCase)
+      { rule: 24, regex: /\bclass\s+\w+(?:DTO|Dto)\b/ },
     ],
     CONTENT_PATTERNS: [
       // Rule 1 — Records: public final class ... { ... private final
@@ -74,7 +74,7 @@ const REGISTRY = {
       { rule: 6,  source: '\\+\\s*\\n\\s*"|"""' },
       // Rule 17 — try/finally with .close()
       { rule: 17, source: '}\\s*finally[\\s\\S]*?\\.close\\(\\)' },
-      // Rule 24 — DTO Record Conversion: also covers common VO/model/payload/request/response packages
+      // Rule 24 — DTO Record Conversion: dto/vo/model/payload/request/response packages; full-class read required at inspection time
       { rule: 24, source: 'package\\s+[\\w.]+\\.(?:dto|vo|model|payload|request|response)\\s*;' },
     ],
   },

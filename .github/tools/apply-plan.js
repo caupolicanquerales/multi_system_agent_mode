@@ -157,16 +157,18 @@ function parseMigrationPlan(markdown) {
       continue;
     }
 
-    // --- Bold paragraph finding container: **...`File.java`...line N...** ---
-    const boldMatch = line.match(/^\*\*.*`([^`]+\.java)`.*\bline\s+(\d+)/i);
-    if (boldMatch) {
+    // --- Bold paragraph finding container: any source file, optional line number ---
+    // Captures: group 1 = source file, group 2 = line number (optional), group 3 = target .java path (optional)
+    const boldAny = line.match(/^\*\*.*`([^`]+\.(?:java|xml|yml|yaml|properties))`(?:.*\bline\s+(\d+))?(?:.*`([^`]+\.java)`)?/i);
+    if (boldAny && boldAny[1]) {
       commitFinding();
       currentFinding = {
         skill:       currentSkill,
         rule:        currentRule,
         rule_name:   currentRuleName,
-        file:        boldMatch[1].trim(),
-        line:        parseInt(boldMatch[2], 10),
+        file:        boldAny[1].trim(),
+        ...(boldAny[3] ? { target_path: boldAny[3].trim() } : {}),
+        line:        boldAny[2] ? parseInt(boldAny[2], 10) : 0,
         effort:      'Med',
         risk:        'Low',
         current:     '',
@@ -176,16 +178,20 @@ function parseMigrationPlan(markdown) {
       continue;
     }
 
-    // --- Flexible finding header matcher: ##### Finding N.M or #### `File.java` ---
-    if (/^#{4,5}\s+.*(Finding|\.java)/i.test(line)) {
+    // --- Flexible finding header matcher: ##### Finding N.M or #### `File.(java|xml|yml|properties)` ---
+    if (/^#{4,5}\s+.*(Finding|\.java|\.xml|\.yml|\.properties)/i.test(line)) {
       commitFinding();
-      const hdrFile = line.match(/`([^`]+\.java)`/i);
-      const hdrLine = line.match(/lines?\s+(\d+)/i);
+      const hdrFile       = line.match(/`([^`]+\.(?:java|xml|yml|yaml|properties))`/i);
+      const hdrTargetPath = line.match(/`([^`]+\.java)`.*`([^`]+\.java)`/i);
+      const hdrLine       = line.match(/lines?\s+(\d+)/i);
+      const srcFile = hdrFile ? hdrFile[1] : null;
+      const tgtPath = hdrTargetPath ? hdrTargetPath[2] : null;
       currentFinding = {
         skill:       currentSkill,
         rule:        currentRule,
         rule_name:   currentRuleName,
-        file:        hdrFile ? hdrFile[1] : null,
+        file:        srcFile,
+        ...(tgtPath ? { target_path: tgtPath } : {}),
         line:        hdrLine ? parseInt(hdrLine[1], 10) : 0,
         effort:      'Med',
         risk:        'Low',
@@ -218,15 +224,17 @@ function parseMigrationPlan(markdown) {
     if (!currentFinding) continue;
 
     // --- Meta line: - **File:** `path` | **Line:** N | **Effort:** X | **Risk:** Y ---
-    if (line.startsWith('- **File:**')) {
-      const fileMatch   = line.match(/\*\*File:\*\*\s*`([^`]+)`/);
-      const lineNumMatch = line.match(/\*\*Line:\*\*\s*(\d+)/);
-      const effortMatch = line.match(/\*\*Effort:\*\*\s*(\w+)/);
-      const riskMatch   = line.match(/\*\*Risk:\*\*\s*(\w+)/);
-      if (fileMatch)    currentFinding.file   = fileMatch[1];
-      if (lineNumMatch) currentFinding.line   = parseInt(lineNumMatch[1], 10);
-      if (effortMatch)  currentFinding.effort = effortMatch[1];
-      if (riskMatch)    currentFinding.risk   = riskMatch[1];
+    if (line.startsWith('- **File:**') || line.startsWith('- **Target Path:**')) {
+      const fileMatch       = line.match(/\*\*File:\*\*\s*`([^`]+)`/);
+      const targetPathMatch = line.match(/\*\*Target Path:\*\*\s*`([^`]+)`/);
+      const lineNumMatch    = line.match(/\*\*Line:\*\*\s*(\d+)/);
+      const effortMatch     = line.match(/\*\*Effort:\*\*\s*(\w+)/);
+      const riskMatch       = line.match(/\*\*Risk:\*\*\s*(\w+)/);
+      if (fileMatch)        currentFinding.file        = fileMatch[1];
+      if (targetPathMatch)  currentFinding.target_path = targetPathMatch[1];
+      if (lineNumMatch)     currentFinding.line        = parseInt(lineNumMatch[1], 10);
+      if (effortMatch)      currentFinding.effort      = effortMatch[1];
+      if (riskMatch)        currentFinding.risk        = riskMatch[1];
       continue;
     }
 
@@ -282,9 +290,23 @@ function validateFindings(findings) {
       );
     }
     if (!finding.current || !finding.current.trim()) {
-      errors.push(
-        `ERROR: ${loc} — finding has an empty Current code block (no fenced snippet after "- **Current:**").`
-      );
+      if (finding.target_path) {
+        // Creation finding — current is intentionally absent; only replacement is required
+        if (!finding.replacement || !finding.replacement.trim()) {
+          errors.push(
+            `ERROR: ${loc} — creation finding with target_path is missing Replacement code.`
+          );
+        }
+      } else if (/\.xml$|\.yml$|\.yaml$|\.properties$/i.test(finding.file || '')) {
+        // Rule 19 config-file finding with no target_path — reporter must supply Target Path
+        errors.push(
+          `ERROR: ${loc} — Rule 19 finding for '${finding.file}' has empty Current code and no target_path. Add a '- **Target Path:**' meta line.`
+        );
+      } else {
+        errors.push(
+          `ERROR: ${loc} — finding has an empty Current code block (no fenced snippet after "- **Current:**").`
+        );
+      }
     }
     if (!finding.replacement && finding.replacement !== '') {
       errors.push(
@@ -292,9 +314,12 @@ function validateFindings(findings) {
       );
     }
     if (finding.line === 0 || finding.line == null) {
-      errors.push(
-        `ERROR: ${loc} — finding is missing a source line number (no "- **Line:**" in the meta row).`
-      );
+      // Creation findings (Rule 19) reference an XML source with no line number — skip this check.
+      if (!finding.target_path) {
+        errors.push(
+          `ERROR: ${loc} — finding is missing a source line number (no "- **Line:**" in the meta row).`
+        );
+      }
     }
   }
   return errors;
@@ -886,6 +911,38 @@ function main() {
       : path.resolve(projectPath, relKey);
     let relPath = relKey;
 
+    // --- File-creation findings (Rule 19): write new .java files to target_path ---
+    for (const finding of fileFindings) {
+      if (!finding.target_path) continue;
+      const newFilePath = path.isAbsolute(finding.target_path)
+        ? finding.target_path
+        : path.resolve(projectPath, finding.target_path);
+      const dirPath = path.dirname(newFilePath);
+      try {
+        if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+        safeWriteFileAtomic(newFilePath, (finding.replacement || '').trimEnd() + '\n');
+        summary.applied++;
+        summary.changed_files.add(path.relative(projectPath, newFilePath));
+      } catch (err) {
+        console.error(`Error: Cannot create file ${newFilePath}: ${err.message}`);
+        summary.failed++;
+      }
+    }
+
+    // Exclude creation findings and non-Java source files from the edit pipeline.
+    // Config/XML files without target_path cannot be edited by the Java token pipeline.
+    const NON_JAVA = /\.(?:xml|yml|yaml|properties)$/i;
+    const editFindings = fileFindings.filter(f => {
+      if (f.target_path) return false;  // already handled by creation loop above
+      if (NON_JAVA.test(f.file || '')) {
+        console.warn(`Warning: Non-Java finding for '${f.file}' has no target_path — skipping edit.`);
+        summary.skipped++;
+        return false;
+      }
+      return true;
+    });
+    if (editFindings.length === 0) continue;
+
     if (!fs.existsSync(absoluteFilePath)) {
       // Bare filename (no directory separators) — search the project tree
       if (!relKey.includes('/') && !relKey.includes('\\')) {
@@ -898,12 +955,12 @@ function main() {
     }
 
     if (!fs.existsSync(absoluteFilePath)) {
-      console.warn(`Warning: File not found: ${absoluteFilePath} — skipping ${fileFindings.length} finding(s).`);
-      summary.skipped += fileFindings.length;
+      console.warn(`Warning: File not found: ${absoluteFilePath} — skipping ${editFindings.length} finding(s).`);
+      summary.skipped += editFindings.length;
       continue;
     }
 
-    const result = applyFindingsToFile(absoluteFilePath, relPath, fileFindings);
+    const result = applyFindingsToFile(absoluteFilePath, relPath, editFindings);
 
     summary.applied  += result.applied;
     summary.skipped  += result.skipped;
