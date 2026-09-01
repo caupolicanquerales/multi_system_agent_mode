@@ -5,108 +5,120 @@ description: "Full Command Flow execution spec for the Orchestrator: CommandExtr
 
 ## Command Flow
 
-⛔ **No shortcuts. No exceptions. Follow steps 1 → 2 → 3 in strict order every time.**
+⛔ **No shortcuts. No exceptions. Follow steps 1 → 2 → 3 in strict order every time — unless the cache bypass condition below applies.**
+
+---
+
+### Session Context Cache
+
+The Orchestrator maintains an in-turn variable `project_context` (a map keyed by `project_name`). Each entry stores the full CommandExtractor JSON for that project so that sequential commands on the same project skip re-extraction.
+
+**Cache structure (per entry):**
+```
+project_context[<project_name>] = {
+  command,            ← overwritten per request; all other fields are cached
+  project_name,
+  project_location,
+  file_type,
+  os,
+  hasMavenWrapper,
+  pwsh_available,     ← Windows only; cached from Step 1b
+  metadata            ← flat object of all version fields
+}
+```
+
+**Cache validity rules:**
+- An entry is valid for the duration of the current conversation turn sequence.
+- Invalidate (delete) the entry for `<project_name>` if: the user mentions a dependency change, a `pom.xml`/`build.gradle`/`package.json` edit, or explicitly asks to re-scan the project.
+- Never share cache entries across different `project_name` values.
+- **Location disambiguation:** `project_name` is the primary lookup key. `project_location` is stored inside each entry and used only when two entries would share the same `project_name` (ambiguous workspace). In that case, append `"|" + project_location` to form a unique key for the colliding entries — but only after the collision is detected, not preemptively. If `project_name` is missing or blank in CommandExtractor's response, fall back to keying by `project_location` alone.
+
+**Implicit project inference (no project name in follow-up):**
+- Maintain a `last_active_project` variable (the `project_name` most recently passed through Step 1 or the cache bypass).
+- When the user's message contains a command intent but no identifiable `project_name` (e.g. *"now compile it"*, *"run tests"*, *"clean"*), substitute `last_active_project` as the target before evaluating the bypass condition.
+- If `last_active_project` is unset (first command in the session), proceed with Step 1 as normal — CommandExtractor will extract the project name from the workspace context.
+
+**Cache bypass condition — skip Step 1 and Step 1b when ALL of the following are true:**
+1. An entry keyed by `project_name` (or `project_location` if `project_name` was blank) exists in `project_context` and is valid.
+2. The user's new request targets the same project (resolved via explicit name, `last_active_project`, or unique location match).
+3. Only the `command` field changes (e.g. `"test"` → `"compile"`); no metadata fields are expected to differ.
+
+When the bypass fires: update the cached entry's `command` to the new value and jump directly to **Step 2**, passing the updated cache entry as the payload.
+
+---
 
 **Step 1 — Call CommandExtractor**
 
-Use the `agent` tool with `name: CommandExtractor`. Pass the raw user prompt as-is — no extra context.
-⛔ Do NOT extract the command, project name, file type, or any metadata yourself.
-⛔ Do NOT re-route this task back to Orchestrator or any other agent.
-⛔ Do NOT call `Explore`, `file_search`, `grep_search`, `read_file`, or any other tool or agent while waiting for CommandExtractor.
-⛔ Do NOT analyze whether CommandExtractor can handle the request — always call it unconditionally.
-⛔ Wait passively. Your only permitted action is to receive CommandExtractor's response:
-`{ command, project_name, project_location, file_type, os, hasMavenWrapper, metadata }`
-
-⛔ Do NOT present this JSON to the user. Proceed immediately and automatically to Step 1b — no pause, no intermediate output.
+Use the `agent` tool with `name: CommandExtractor`. Pass the raw user prompt as-is.
+⛔ Never extract metadata, re-route, call other tools/agents, or present JSON to the user while waiting.
+Receive: `{ command, project_name, project_location, file_type, os, hasMavenWrapper, metadata }` → proceed to Step 1b immediately.
 
 **Step 1b — Check PowerShell Core Availability (Windows only)**
 
-If `os == "windows"` in the response from CommandExtractor:
-1. Run a lightweight check via `run_in_terminal` (mode: sync, timeout: 5000):
-   ```powershell
-   where.exe pwsh
-   ```
-2. If `exitCode == 0`, add `"pwsh_available": true` to the payload forwarded to CommandGenerator.
-3. If `exitCode != 0` or fails, add `"pwsh_available": false` to the payload forwarded to CommandGenerator.
+If `os == "windows"`: run `where.exe pwsh` (mode: sync, timeout: 5000). `exitCode == 0` → `pwsh_available: true`; else `false`. Omit for non-Windows.
 
-If `os != "windows"`, omit `pwsh_available` entirely.
-
-⛔ Do NOT present this JSON to the user. Proceed immediately and automatically to Step 2 — no pause, no intermediate output.
+Store the complete payload in `project_context[<project_name>]`. Proceed to Step 2 immediately — no output to user.
 
 **Step 2 — Call CommandGenerator** *(non-stop chain from Step 1b)*
 
-Forward the essential fields per the forwarding rules in the orchestrator-rules skill, including `pwsh_available` (if applicable). Await:
-`{ project_name, project_location, terminal_command, display_label, confirmation_message }`.
+**JavaParser short-circuit — skip CommandGenerator when `command` is `"javaparser"` or `"generate_javaparser_report"`:**
 
-⛔ Do NOT evaluate recipes, goals, tasks, or scripts yourself. Do NOT load any skill file yourself.
+⛔ Do NOT call `manage_todo_list` for this path — it is a single-step direct execution, not a multi-step workflow.
+
+1. Read `project_location` and `os` from the cache entry resolved in Step 1 / Step 1b (same key rules as the Session Context Cache section).
+2. Derive `<msam_root>` from the workspace folder list — do NOT hardcode usernames. The JAR lives at `<msam_root>\.github\tools\javapaser-0.0.1-SNAPSHOT.jar`; pass the containing directory as the second bat argument.
+3. ⛔ If `os != "windows"`, inform the user that JavaParser report generation requires Windows and stop.
+4. Set the following synthetic payload (no CommandGenerator call):
+   ```
+   terminal_command  = & "<msam_root>\.github\tools\generate-javaparser-report.bat" "<project_location>" "<msam_root>\.github\tools"
+   display_label     = Generate JavaParser Report
+   confirmation_message = Running JavaParser AST report for <project_name>
+   ```
+5. Jump directly to **Step 3** with the synthetic payload.
+
+For all other `command` values: forward essential fields (incl. `pwsh_available` if applicable) per orchestrator-rules forwarding rules. Await:
+`{ project_name, project_location, terminal_command, display_label, confirmation_message }`.
+⛔ Never evaluate recipes or load skill files yourself.
 
 **Step 3 — Display and run**
 
-Display `terminal_command` in a code block. Execute it with output redirected to a temp file so Step 4 can pass the file path directly to `log_analyzer.js` — avoiding all inline string escaping and shell length limits.
+Display `terminal_command` in a code block. Wrap it in the OS-appropriate redirect before calling `run_in_terminal` (mode: sync, timeout: 600000):
 
-Wrap `terminal_command` in the OS-appropriate redirect before calling `run_in_terminal` (mode: sync, timeout: 600000):
+| OS | Wrapper |
+|---|---|
+| Linux/macOS | `<terminal_command> 2>&1 \| tee /tmp/build_log.txt ; exit ${PIPESTATUS[0]}` |
+| Windows — OpenRewrite (`.ps1`) | `& <terminal_command> ; exit $LASTEXITCODE` |
+| Windows — standard | `& { <terminal_command> } 2>&1 \| Tee-Object -FilePath "$env:TEMP\build_log.txt" ; exit $LASTEXITCODE` |
 
-**Linux / macOS:**
-```bash
-<terminal_command> 2>&1 | tee /tmp/build_log.txt ; exit ${PIPESTATUS[0]}
-```
-**Windows (PowerShell)** — choose the wrapper based on whether `terminal_command` is an OpenRewrite script invocation:
+Use `confirmation_message` as explanation, `display_label` as goal.
 
-- **OpenRewrite** (`terminal_command` is a `.ps1` script invocation):
-```powershell
-& <terminal_command> ; exit $LASTEXITCODE
-```
-- **Standard commands** (`clean install`, `test`, `build`, etc.):
-```powershell
-& { <terminal_command> } 2>&1 | Tee-Object -FilePath "$env:TEMP\build_log.txt" ; exit $LASTEXITCODE
-```
+**Execution contract:**
+- Block until `exitCode` is present in the return object — emit zero output while running.
+- No `exitCode` → end turn silently; wait for terminal notification.
+- `exitCode == 0` → notify success (per orchestrator-rules). Stop.
+- `exitCode != 0` → proceed to Step 4.
 
-Use `confirmation_message` as explanation and `display_label` as goal.
-
-**run_in_terminal execution contract (three mandatory behaviors):**
-
-**① Process Blocking — wait for exit code before yielding.**
-After calling `run_in_terminal`, the Orchestrator MUST block its turn until the tool returns a final `exitCode`. Do NOT complete the interaction turn, do NOT yield back to the user, and do NOT emit any output while the process is still running. The turn ends only after `exitCode` is present in the return object.
-
-**② Silent Execution — zero output during run.**
-While waiting for `run_in_terminal` to return, the Orchestrator MUST NOT stream output, read intermediate results, or emit any user-facing message (including "started", "running", or progress updates). Token cost during execution is zero by design.
-
-**③ Post-Execution Inspection — branch strictly on exit code.**
-Evaluate the return object immediately after `run_in_terminal` completes:
-- **No `exitCode` in return object** (command moved to background / partial output only): end the turn silently — zero text to the user. The automatic terminal notification on the next turn will resume the workflow.
-- **`exitCode == 0`**: follow the success notification rule in the orchestrator-rules skill. Stop.
-- **`exitCode != 0`**: read the temp log file written by `Tee-Object` / `tee`, apply log reduction (extract all ERROR / FATAL / Exception / FAILED / Caused by: / stack-trace lines, then append the last 150 lines; deduplicate consecutive identical lines), and proceed immediately to **Step 4** with the reduced log.
-
-⛔ Do NOT send any message to the user before, during, or while waiting for `run_in_terminal` to return.
-⛔ Do NOT execute any terminal commands (`type`, `cat`, `Get-Content`) or ask for extra terminal permissions to check if the command succeeded.
+⛔ Never message the user before/during execution. Never run secondary terminal commands to verify success.
 
 **Step 4 — Compact logs via log_analyzer.js**
 
-Pass the temp file written in Step 3 directly as a file argument to `log_analyzer.js`. No string embedding, no escaping, no size limit risk.
+Run `run_in_terminal` (mode: sync, timeout: 30000):
 
-**Linux / macOS** — call `run_in_terminal` (mode: sync, timeout: 30000) with:
-```bash
-node .github/tools/log_analyzer.js /tmp/build_log.txt
-```
+| OS | Command |
+|---|---|
+| Linux/macOS | `node .github/tools/log_analyzer.js /tmp/build_log.txt` |
+| Windows | `$env:PATH += ";$env:ProgramFiles\nodejs;$env:APPDATA\npm"; node .github/tools/log_analyzer.js "$env:TEMP\build_log.txt"` |
 
-**Windows (PowerShell)** — call `run_in_terminal` (mode: sync, timeout: 30000) with:
-```powershell
-$env:PATH += ";$env:ProgramFiles\nodejs;$env:APPDATA\npm"; node .github/tools/log_analyzer.js "$env:TEMP\build_log.txt"
-```
+- **Exit 0** (`BUILD PASSED OR UNKNOWN ERROR STATE`): no actionable errors — inform user, stop. Do NOT call LogAnalyzer.
+- **Exit 1**: extract lines between `=== COMPACTED ERROR LOG ===` and `===========================` as `<compacted_log>` → Step 5.
+- **Script failure** (`node` / script not found): inform user log analysis is unavailable, ask them to review terminal output. Stop.
 
-Evaluate the result:
-
-- **Exit code 0** (`BUILD PASSED OR UNKNOWN ERROR STATE` in stdout): no actionable errors found. Inform the user the build output contained no recognisable error patterns and stop. Do NOT call LogAnalyzer.
-- **Exit code 1**: stdout contains the `=== COMPACTED ERROR LOG ===` block. Extract the lines between `=== COMPACTED ERROR LOG ===` and `===========================` as `<compacted_log>`. Proceed immediately to **Step 5**.
-- **Script execution failure** (`node` not found, script not found, or any `CommandNotFoundException`): inform the user that log analysis is unavailable due to a missing Node.js binary and ask them to review the terminal output directly. Stop.
-
-⛔ Do NOT analyze the compacted log yourself. Do NOT attempt fixes. Do NOT call LogResolver at this point.
-⛔ Do NOT fall back to `Get-Content`, `type`, `cat`, or any other terminal command to read the log file when `log_analyzer.js` fails.
+⛔ Never analyze the log yourself, attempt fixes, call LogResolver, or fall back to `Get-Content`/`type`/`cat`.
 
 **Step 5 — LogAnalyzer**
 
-⛔ Do NOT analyze log output yourself or issue additional terminal commands.
-Pass the following formatted string to LogAnalyzer using the `agent` tool with `name: LogAnalyzer`:
+⛔ Never analyze log output yourself or issue additional terminal commands.
+Pass to LogAnalyzer (`agent` tool, `name: LogAnalyzer`):
 
 ```
 Command: <terminal_command from Step 3>
@@ -115,17 +127,13 @@ Logs (filtered): <compacted_log from Step 4>
 ```
 
 Await `{ totalDefectsFound, defects: [{ id, severity, category, title, description, coordinates }] }`.
-
-If `totalDefectsFound == 0`: inform user no defects were identified, stop.
+If `totalDefectsFound == 0`: inform user, stop.
 
 **Step 6 — Present defects**
 
-`vscode_askQuestions` with defect list (options: Fix all defects *(recommended)*, Dismiss). No file coordinates in message.
-
-- *Dismiss*: stop.
-- *Fix all defects*: **Step 7**.
+`vscode_askQuestions` with defect list. Options: Fix all defects *(recommended)*, Dismiss. No file coordinates in message.
+- *Dismiss*: stop. *Fix all defects*: Step 7.
 
 **Step 7 — LogResolver**
 
-⛔ Do NOT attempt to fix any file yourself. Use the `agent` tool with `name: LogResolver`.
-Pass the complete LogAnalyzer JSON (full defects array) to LogResolver. Display resolution summary.
+⛔ Never fix files yourself. Use `agent` tool with `name: LogResolver`. Pass full defects array. Display resolution summary.

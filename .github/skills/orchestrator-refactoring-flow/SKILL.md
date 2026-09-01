@@ -1,6 +1,6 @@
 ---
 name: orchestrator-refactoring-flow
-description: "Refactoring Flow execution spec for the Orchestrator: confirms with the user, calls TechnicalExecuter with the MIGRATION_PLAN.md path, and surfaces the apply result."
+description: "Refactoring Flow execution spec for the Orchestrator: confirms with the user, calls TechnicalExecuter with the MIGRATION_PLAN.md path, surfaces the apply result, and optionally runs the JavaParser post-migration AST report."
 ---
 
 ## Refactoring Flow
@@ -25,4 +25,27 @@ description: "Refactoring Flow execution spec for the Orchestrator: confirms wit
    Await `{ status, project_name, total_findings, applied, skipped, failed, changed_files, cascade_warnings, error }`.
 4. **Notify user:**
    - `failure` → `vscode_askQuestions` (header: Refactoring Failed, options: OK). Stop.
-   - `success` → `vscode_askQuestions` (header: Refactoring Applied) with applied/skipped/failed counts and changed files. If `cascade_warnings` non-empty, include cascade warning. Options: OK *(recommended)*. Stop.
+   - `success` → `vscode_askQuestions` (header: Refactoring Applied) with applied/skipped/failed counts and changed files. If `cascade_warnings` non-empty, include cascade warning. Options: **Generate JavaParser Report** *(recommended)*, OK.
+     - *OK*: stop.
+     - *Generate JavaParser Report*: proceed to **Step 5**.
+
+5. **Generate JavaParser Report (post-migration AST analysis)**
+
+   **Resolve cache entry** — in order:
+   1. Look up `project_context[<project_name>]` (using the same key rules defined in orchestrator-command-flow). If a valid entry exists, read `project_location`, `os`, and `hasMavenWrapper` directly from it.
+   2. If no valid entry exists, call CommandExtractor with the project name to obtain the full payload, then write it into `project_context[<project_name>]` before continuing. Extract `project_location`, `os`, and `hasMavenWrapper` from the new entry.
+
+   ⛔ This step is Windows-only (`.bat`). If `os != "windows"` from the resolved cache entry, inform the user that JavaParser report generation requires Windows and stop.
+
+   **Resolve `<msam_root>`** from the workspace folder list — do NOT hardcode usernames. The JAR `javapaser-0.0.1-SNAPSHOT.jar` lives inside `<msam_root>\.github\tools`; that directory is passed as the second bat argument.
+
+   **Construct and run the command** via `run_in_terminal` (mode: sync, timeout: 300000):
+   ```powershell
+   # arg1 = TARGET_DIR (project root), arg2 = dir containing javapaser-0.0.1-SNAPSHOT.jar
+   & "<msam_root>\.github\tools\generate-javaparser-report.bat" "<project_location>" "<msam_root>\.github\tools"
+   ```
+   The bat uses `hasMavenWrapper` implicitly: it checks for `mvnw.cmd` at `<project_location>\mvnw.cmd` itself — do NOT pass this flag as an argument.
+
+   **Evaluate exit code:**
+   - `exitCode == 0` → inform the user that `business-ast-report.json` and `dependency-tree.txt` were generated inside `<project_location>`. Stop.
+   - `exitCode != 0` → surface the terminal output and ask the user to review. Stop.

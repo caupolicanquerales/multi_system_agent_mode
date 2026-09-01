@@ -30,6 +30,7 @@ The Orchestrator passes the raw user message, which may be in any language or ph
 | deploy, desplegar, despliega, publicar | `deploy` |
 | clean, limpiar, limpia | `clean` |
 | migrate / modernize / refactor / apply OpenRewrite / aplicar openrewrite / migrar / modernizar con openrewrite | `apply openReWrite` |
+| javaparser / run javaparser / generate javaparser report / ejecuta el javaparser / genera el reporte javaparser / run the javaparser / javaparser report / ejecuta javaparser | `javaparser` |
 
 **`project_name`** — extract the target project name from common patterns in any language:
 - English: `project X`, `for project X`, `on project X`, `in project X`

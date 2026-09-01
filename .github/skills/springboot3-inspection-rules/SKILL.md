@@ -262,3 +262,22 @@ XML descriptors (`web.xml`, `*-servlet.xml`, `*-context.xml`) live under `src/ma
 | `<filter>` / `<listener>` in `web.xml` | `@Bean FilterRegistrationBean` / `@Bean ServletListenerRegistrationBean` | `AppConfig.java` |
 
 **`web.xml` deletion rule:** Mark `web.xml` for deletion (set `effort: High`, `risk: High`). Do NOT generate a Java replacement for `<servlet>` / `<servlet-mapping>` entries — Spring Boot's embedded Tomcat handles dispatch automatically.
+
+**19.1 — Missing Entry-Point Detection (mandatory):**
+
+Whenever Rule 19 fires for any XML config file, the reporter must also verify that a valid Spring Boot entry point exists — do not assume the `<context:component-scan>` → `@SpringBootApplication` mapping row applies without confirming it:
+
+- Search the scanned/indexed Java sources for a class annotated `@SpringBootApplication` that declares a `public static void main(String[] args)` method.
+- If found, confirm its implicit scan root (the package containing the class) — or its explicit `scanBasePackages`/`scanBasePackageClasses` if declared — covers every `base-package` value listed in the XML's `<context:component-scan base-package="..."/>`.
+- **If no `@SpringBootApplication` class exists, or its scan coverage does not include a listed base package**, emit an additional finding automatically (do not skip it, even if it is the only issue found):
+  - `skill: "springboot3"`, `rule: 19`, `rule_name: "Missing Spring Boot Entry Point"`
+  - **`target_path` resolution — apply in order:**
+    1. If the XML lists a single `base-package`, use that package: `src/main/java/<base_package>/<ApplicationName>Application.java`.
+    2. If multiple comma-separated packages are listed (e.g. `com.example.service, com.example.web`), compute the longest common parent package (e.g. `com.example`) and place the class there so `@SpringBootApplication` auto-scans all sub-packages without extra `scanBasePackages` configuration.
+    3. If no base package can be determined, fall back to the project's source root package (derived from the deepest common ancestor of all existing `.java` files).
+  - **`<ApplicationName>` derivation — apply in order:**
+    1. PascalCase of the Maven `<artifactId>` from `pom.xml` (e.g. `library-management` → `LibraryManagement`).
+    2. PascalCase of the project root directory name if `pom.xml` is absent or `<artifactId>` is blank.
+    3. Plain `Application` if neither source yields a usable name (resulting in `Application.java`).
+  - `replacement`: a complete, compilable class with `package` + `import org.springframework.boot.SpringApplication;` + `import org.springframework.boot.autoconfigure.SpringBootApplication;`, the `@SpringBootApplication` annotation, and a `main` method calling `SpringApplication.run(<ApplicationName>Application.class, args);`
+  - `effort: "High"`, `risk: "High"` — the application cannot start without this class.
