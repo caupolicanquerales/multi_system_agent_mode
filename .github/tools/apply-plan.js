@@ -98,6 +98,12 @@ function parseMigrationPlan(markdown) {
   const commitFinding = () => {
     if (currentFinding) {
       flushCode();
+      // Backward-compat: extract `// Target Path: <path>` comment from replacement
+      // when no explicit `- **Target Path:**` metadata line was emitted.
+      if (!currentFinding.target_path && currentFinding.replacement) {
+        const tpMatch = currentFinding.replacement.match(/^\/\/\s*Target Path:\s*(\S+)/m);
+        if (tpMatch) currentFinding.target_path = tpMatch[1].trim();
+      }
       findings.push(currentFinding);
       currentFinding = null;
     }
@@ -238,6 +244,18 @@ function parseMigrationPlan(markdown) {
       continue;
     }
 
+    // --- Action / Instructions meta lines (manual_action findings) ---
+    if (line.startsWith('- **Action:**')) {
+      const actionMatch = line.match(/\*\*Action:\*\*\s*(\S+)/i);
+      if (actionMatch) currentFinding.action = actionMatch[1].toLowerCase();
+      continue;
+    }
+    if (line.startsWith('- **Instructions:**')) {
+      const instrMatch = line.match(/\*\*Instructions:\*\*\s*(.+)/);
+      if (instrMatch) currentFinding.instructions = instrMatch[1];
+      continue;
+    }
+
     // --- Current / Replacement labels (fenced block follows on the next line) ---
     if (line.startsWith('- **Current:**')) {
       collectMode = 'current';
@@ -280,6 +298,9 @@ function parseMigrationPlan(markdown) {
 function validateFindings(findings) {
   const errors = [];
   for (const finding of findings) {
+    // manual_action findings are intentionally incomplete — skip schema validation.
+    if (finding.action === 'manual_action') continue;
+
     const loc = finding._mdLine
       ? `Line ${finding._mdLine} in MIGRATION_PLAN.md`
       : `Finding (skill=${finding.skill}, rule=${finding.rule})`;
@@ -911,8 +932,19 @@ function main() {
       : path.resolve(projectPath, relKey);
     let relPath = relKey;
 
+    // --- Manual action findings: surface as cascade_warnings, do not edit ---
+    for (const finding of fileFindings) {
+      if (finding.action !== 'manual_action') continue;
+      summary.cascade_warnings.push(
+        `${finding.file} [Rule ${finding.rule}]: Manual action required — ` +
+        (finding.instructions || 'see MIGRATION_PLAN.md for instructions.')
+      );
+      summary.skipped++;
+    }
+
     // --- File-creation findings (Rule 19): write new .java files to target_path ---
     for (const finding of fileFindings) {
+      if (finding.action === 'manual_action') continue; // handled above
       if (!finding.target_path) continue;
       const newFilePath = path.isAbsolute(finding.target_path)
         ? finding.target_path
@@ -929,13 +961,21 @@ function main() {
       }
     }
 
-    // Exclude creation findings and non-Java source files from the edit pipeline.
+    // Exclude creation findings, manual_action, and non-Java source files from the edit pipeline.
     // Config/XML files without target_path cannot be edited by the Java token pipeline.
     const NON_JAVA = /\.(?:xml|yml|yaml|properties)$/i;
     const editFindings = fileFindings.filter(f => {
+      if (f.action === 'manual_action') return false; // already handled above
       if (f.target_path) return false;  // already handled by creation loop above
       if (NON_JAVA.test(f.file || '')) {
-        console.warn(`Warning: Non-Java finding for '${f.file}' has no target_path — skipping edit.`);
+        if (isDescriptiveSnippet(f.replacement || '')) {
+          summary.cascade_warnings.push(
+            `${f.file} [Rule ${f.rule}]: Manual action required — replacement is instructional text. ` +
+            `See MIGRATION_PLAN.md for instructions.`
+          );
+        } else {
+          console.warn(`Warning: Non-Java finding for '${f.file}' has no target_path — skipping edit.`);
+        }
         summary.skipped++;
         return false;
       }

@@ -41,7 +41,8 @@ const REGISTRY = {
     LINE_PATTERNS: [
       { rule: 2,  regex: /\bextends\b/ },
       { rule: 7,  regex: /new\s+HashMap<|new\s+ArrayList<|new\s+LinkedHashMap</ },
-      { rule: 9,  regex: /newFixedThreadPool|new\s+Thread\s*\(/ },
+      // Negative lookbehind skips import-only lines (e.g. `import java.util.concurrent.ExecutorService;`)
+      { rule: 9,  regex: /Executors\.\w+ThreadPool\b|Executors\.newSingleThread(?:Executor|ScheduledExecutor)\b|new\s+Thread\s*\(|(?<!import\s\S+\.)(?:ExecutorService|ThreadPoolExecutor)\b/ },
       { rule: 10, regex: /\.get\(0\)|\.getFirst\(\)|\.getLast\(\)/ },
       { rule: 11, regex: /\.trim\(\)/ },
       { rule: 13, regex: /Collectors\.toList\(\)/ },

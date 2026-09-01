@@ -161,8 +161,19 @@ function main() {
 
       md += `##### Finding ${f.rule}.${findingIndex++}\n`;
       md += `- **File:** \`${f.file}\` | **Line:** ${f.line} | **Effort:** ${f.effort || 'Med'} | **Risk:** ${f.risk || 'Med'}\n`;
-      md += `- **Current:**\n\`\`\`java\n${(f.current || '').trimEnd()}\n\`\`\`\n`;
-      md += `- **Replacement:**\n\`\`\`java\n${(f.replacement || '').trimEnd()}\n\`\`\`\n\n`;
+      if (f.target_path) {
+        md += `- **Target Path:** \`${f.target_path}\`\n`;
+      }
+      if (f.action === 'manual_action') {
+        md += `- **Action:** manual_action\n`;
+        if (f.instructions) {
+          md += `- **Instructions:** ${f.instructions}\n`;
+        }
+        md += '\n';
+      } else {
+        md += `- **Current:**\n\`\`\`java\n${(f.current || '').trimEnd()}\n\`\`\`\n`;
+        md += `- **Replacement:**\n\`\`\`java\n${(f.replacement || '').trimEnd()}\n\`\`\`\n\n`;
+      }
     }
   }
 
