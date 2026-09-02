@@ -6,11 +6,17 @@
  * Reads .migration-findings.json (produced by the TechnicalReporter Map phase)
  * and writes the final MIGRATION_PLAN.md (or skill-specific variant).
  *
+ * Findings may omit `current`/`replacement` and set `auto_ref: true` instead —
+ * those are backfilled from the matching `auto: true` hit in
+ * .migration-index.json (see --index), so the LLM never has to re-type a
+ * snippet Node already generated deterministically.
+ *
  * Usage:
  *   node .github/tools/build-report.js \
  *     --input=".migration-findings.json" \
  *     --output="MIGRATION_PLAN.md" \
- *     --projectName="MyProject"
+ *     --projectName="MyProject" \
+ *     --index=".migration-index.json"   # optional, defaults next to --input
  */
 
 'use strict';
@@ -48,6 +54,40 @@ function rulePriority(skill, rule) {
   return 100 + rule;
 }
 
+// Normalizes Windows-style backslash paths so `file` keys always match between
+// .migration-findings.json (LLM-authored) and .migration-index.json (Node-authored)
+function normalizeFilePath(p) {
+  return typeof p === 'string' ? p.replace(/\\/g, '/') : p;
+}
+
+// ---------------------------------------------------------------------------
+// Index backfill — fills in current/replacement for findings marked
+// auto_ref: true from the matching auto:true hit in .migration-index.json.
+// Non-fatal on any failure: findings are simply left as-is.
+// ---------------------------------------------------------------------------
+function loadIndex(indexPath) {
+  if (!indexPath || !fs.existsSync(indexPath)) return null;
+  try { return JSON.parse(fs.readFileSync(indexPath, 'utf8')); }
+  catch (_) { return null; }
+}
+
+function backfillFromIndex(findings, indexMap) {
+  if (!indexMap) return;
+  for (const f of findings) {
+    // Explicit current/replacement always win — auto_ref is only a hint to
+    // backfill when they're absent, never a license to overwrite LLM output.
+    if (f.action === 'manual_action' || !f.auto_ref) continue;
+    if (f.current !== undefined || f.replacement !== undefined) continue;
+    const hits = indexMap[f.file];
+    if (!hits) continue;
+    const hit = hits.find(h => h.rule === f.rule && h.line === f.line && h.auto);
+    if (hit) {
+      f.current     = hit.current;
+      f.replacement = hit.replacement;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -73,16 +113,22 @@ function main() {
   const activeSkills = rawData.active_skills || [];
   const rawFindings  = rawData.findings      || [];
 
-  // 1. Deduplicate findings (skill + rule + file + line as identity key)
+  // 1. Normalize path separators, then deduplicate findings (skill + rule + file + line)
   const seen     = new Set();
   const findings = [];
   for (const f of rawFindings) {
+    f.file = normalizeFilePath(f.file);
+    if (f.target_path) f.target_path = normalizeFilePath(f.target_path);
     const key = `${f.skill}:${f.rule}:${f.file}:${f.line}`;
     if (!seen.has(key)) {
       seen.add(key);
       findings.push(f);
     }
   }
+
+  // 1b. Backfill auto_ref findings from .migration-index.json (default: sibling of --input)
+  const indexPath = path.resolve(args.index || path.join(path.dirname(inputPath), '.migration-index.json'));
+  backfillFromIndex(findings, loadIndex(indexPath));
 
   // 2. Sort & Prioritize
   //    - springboot3 before java21

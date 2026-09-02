@@ -32,7 +32,7 @@ description: "Refactoring Flow execution spec for the Orchestrator: confirms wit
 5. **Generate JavaParser Report (post-migration AST analysis)**
 
    **Resolve cache entry** — in order:
-   1. Look up `project_context[<project_name>]` (using the same key rules defined in orchestrator-command-flow). If a valid entry exists, read `project_location`, `os`, and `hasMavenWrapper` directly from it.
+   1. Look up `project_context[<project_name>]` (using the same key rules defined in [orchestrator-cache-spec](.github/skills/orchestrator-cache-spec/SKILL.md)). If a valid entry exists, read `project_location`, `os`, and `hasMavenWrapper` directly from it.
    2. If no valid entry exists, call CommandExtractor with the project name to obtain the full payload, then write it into `project_context[<project_name>]` before continuing. Extract `project_location`, `os`, and `hasMavenWrapper` from the new entry.
 
    ⛔ This step is Windows-only (`.bat`). If `os != "windows"` from the resolved cache entry, inform the user that JavaParser report generation requires Windows and stop.
@@ -47,5 +47,24 @@ description: "Refactoring Flow execution spec for the Orchestrator: confirms wit
    The bat uses `hasMavenWrapper` implicitly: it checks for `mvnw.cmd` at `<project_location>\mvnw.cmd` itself — do NOT pass this flag as an argument.
 
    **Evaluate exit code:**
-   - `exitCode == 0` → inform the user that `business-ast-report.json` and `dependency-tree.txt` were generated inside `<project_location>`. Stop.
+   - `exitCode == 0` → inform the user that `business-ast-report.json` and `dependency-tree.txt` were generated inside `<project_location>`. Ask (`vscode_askQuestions`, header: Generate Modernization Report, options: **Generate Report** *(recommended)*, OK) whether to proceed to **Step 6**.
+     - *OK*: stop.
+     - *Generate Report*: proceed to **Step 6**.
    - `exitCode != 0` → surface the terminal output and ask the user to review. Stop.
+
+6. **Generate Modernization Report (post-migration scoring)**
+
+   Reuse the same `project_context[<project_name>]` cache entry resolved in Step 5 — do not re-resolve it. Read `project_location` and `os` from it.
+
+   **Call MetricsAnalyzer** (`agent` tool, `name: MetricsAnalyzer`) with:
+   ```
+   Project name: <project_name>
+   Project path: <project_location>
+   OS: <os>
+   ```
+   MetricsAnalyzer owns its own user confirmation before executing `metrics-calculater.js` — do not ask the user again beforehand.
+
+   Await `{ status, report_path, modernization_score, verdict, error }`.
+   - `status == "cancelled"` → stop, no further message needed (MetricsAnalyzer already handled the user prompt).
+   - `status == "failure"` → `vscode_askQuestions` (header: Modernization Report Failed, options: OK) surfacing `error`. Stop.
+   - `status == "success"` → inform the user that `MODERNIZATION_REPORT.md` was generated at `report_path`, including `modernization_score` and `verdict`. Stop.

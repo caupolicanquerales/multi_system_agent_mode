@@ -1,5 +1,5 @@
 ---
-name: command-extractor-mvn-rules
+name: command-extractor-mvn
 description: "Use when file_type is maven. Contains rules for detecting Maven projects (pom.xml), Maven wrapper detection (hasMavenWrapper), and targeted grep_search patterns to extract Java, Spring Boot, and JUnit version metadata."
 user-invocable: false
 ---

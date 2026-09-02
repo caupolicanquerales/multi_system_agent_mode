@@ -23,6 +23,13 @@ At least one skill file required. Legacy `Skill file:` (singular) accepted.
 
 `status: "failure"` only when all skills are unreadable or project path is inaccessible.
 
+## Mandatory Execution Guardrails (apply from the very first tool call)
+
+1. **NO UNINDEXED READS:** ⛔ Never call `read_file` on a `.java`/config/build source file before Step 3 (`index-project.js`) has produced `.migration-index.json`. Steps 1–2 only ever `read_file` candidate **skill file** paths (lines 1–5) or `file_search`/glob for **discovery** — never to inspect source content.
+2. **TERMINAL BUDGET:** Exactly 3 `run_in_terminal` calls total — `index-project.js` (Step 3), `build-report.js` (Step 5), `rm .migration-index.json` (Step 5). No exceptions, no probing calls.
+3. **COMPLIANT FILE SKIP:** A file absent from `.migration-index.json` is 100% compliant. Never call `read_file` on it, under any circumstance.
+4. **FAIL FAST, NEVER FALL BACK TO SCANNING:** If Step 1 cannot resolve a skill file, or any step hits an unexpected error, return `status: "failure"` immediately (see Return Format). ⛔ Never respond to a resolution failure by reading project source files one by one — that failure mode has no recovery path other than returning failure.
+
 ## Report Filename
 
 | Active skills | Filename |
@@ -42,11 +49,24 @@ At least one skill file required. Legacy `Skill file:` (singular) accepted.
 
 > **node rule (Windows):** prefix every `node` call with `$env:PATH += ";$env:ProgramFiles\nodejs;$env:APPDATA\npm"; `. No candidate-path loops, no fallbacks. Apply the prefix and call `node` immediately.
 
+## read_file Budget (Step 4) — `complex: true` hits only
+
+`index-project.js` already scans every file off-thread (concurrent disk reads) and embeds a `context` snippet directly in `.migration-index.json`. Re-reading files one at a time via `read_file` in Step 4 is the single biggest source of latency on large legacy projects — it is now restricted to exactly one case:
+
+⛔ **`read_file` may ONLY be called in Step 4 for a hit where `complex: true`.** For every `complex: false` hit — including `auto: true` ones — `read_file` is forbidden; use the hit's own `context` + `hint` instead.
+⛔ Never call `read_file` file-by-file or line-by-line to "double check" a `complex: false` hit — the embedded `context` is the source of truth.
+⛔ Never call `read_file` for a file entirely absent from the index — it is 100% compliant by definition.
+
 ## Workflow
 
 ### Step 1 — Resolve Active Skills
 
-Try each skill path as-given → `.github/skills/<folder>/SKILL.md` → `.github/skills/<filename>`. Confirm readable via `read_file` lines 1–5 only. If none resolve → return failure.
+Try each skill path as-given → `.github/skills/<folder>/SKILL.md` → `.github/skills/<filename>`, in that order, using **`read_file` directly on each candidate path** (lines 1–5 only).
+
+⛔ Never use `file_search` or `grep_search` to locate a skill file — workspace ignore patterns can make a real file appear "not found", and that is not license to search elsewhere. Only the 3 candidate paths above are ever tried, in order, via `read_file`.
+⛔ If none of the 3 candidates are readable for a given skill entry, that skill is simply unresolved — move on to the next skill entry. Do NOT retry with different casing/paths, do NOT search the workspace, and do NOT start reading project source files as a substitute.
+
+If **no** skill resolves at all → return `status: "failure"` immediately (per the Fail Fast guardrail above) and stop — do not proceed to Step 2.
 
 Set `active_skills` = `[java21]`, `[springboot3]`, or `[java21, springboot3]`.
 
@@ -65,17 +85,30 @@ Fallback: `<project_path>/**/*.java` if `src/main/java` absent.
 **Windows:** `$env:PATH += ";$env:ProgramFiles\nodejs;$env:APPDATA\npm"; node .github/tools/index-project.js --path="<project_path>" --skills="<active_skills>"`
 **Linux/macOS:** `node .github/tools/index-project.js --path="<project_path>" --skills="<active_skills>"`
 
-Read `.migration-index.json` via `read_file`:
+Read `.migration-index.json` via `read_file`. Each hit is already enriched by Node — no full-file `read_file` needed to understand most of them:
 ```json
-{ "src/main/java/com/app/LegacyService.java": [{ "skill": "java21", "rule": 3, "line": 42 }] }
+{ "src/main/java/com/app/LegacyService.java": [
+  { "skill": "java21", "rule": 3, "line": 42, "hint": "javax.* import → jakarta.* (namespace rename only).", "complex": false, "context": "41: ...\n42: import javax.servlet.Filter;\n43: ..." },
+  { "skill": "java21", "rule": 21, "line": 80, "hint": "Legacy java.util.Date/Calendar — migrate to java.time.", "complex": true, "context": null }
+] }
 ```
 Files absent from the index are 100% compliant — do NOT scan them.
+
+- **`context`** — a pre-extracted, line-numbered snippet around the hit. Use it directly to write `current`/`replacement` — do NOT `read_file` the file for this hit.
+- **`hint`** — a one-line instruction sufficient for `complex: false` hits. Do NOT load the full skill rule text for these.
+- **`complex: true`** — `context` is `null` by design. These are exactly the rules in the Full-class read / Non-contiguous edits table below: read the full file AND load the rule's full detail from [technical-report](.github/skills/technical-report/SKILL.md) **for that rule only** — never preload the whole skill file for every batch.
+- **`auto: true`** (present on some `complex: false` hits) — Node already computed a safe, deterministic `current`/`replacement` (e.g. `javax.*`→`jakarta.*`, `.trim()`→`.strip()`). Sanity-check it against `context`, then record the finding with `"auto_ref": true` instead of retyping `current`/`replacement` — `build-report.js` backfills them from the index. Only fall back to hand-writing `current`/`replacement` if the auto value looks wrong for this specific occurrence.
 
 ### Step 4 — Map Phase (Batch Inspection)
 
 Group indexed files into batches of 10–15. Track with `manage_todo_list`.
 
-Default window: `[line - 15, line + 15]`. Expand if needed to capture outer declarations or try/if blocks.
+**Per-hit routing (read the index entry before doing anything else — see read_file Budget above, this is a hard rule, not a preference):**
+- `complex: false`, no `auto` → build `current`/`replacement` from the embedded `context` + `hint`. No `read_file`, no skill load.
+- `complex: false`, `auto: true` → validate against `context`; record with `"auto_ref": true` (Step 5 skips writing `current`/`replacement`). No `read_file`.
+- `complex: true` → full-class `read_file` required (`context` is `null`); load the specific rule's detail from [technical-report](.github/skills/technical-report/SKILL.md) **for that rule only**, not the whole skill.
+
+There is no "residual manual read" fallback for `complex: false` hits — if `context` genuinely lacks a needed anchor line, still do not read the file; emit the finding from what `context` provides or mark it `skipped` with a reason. The `[line - 15, line + 15]` window below applies only inside `complex: true` full-class reads, to size how much of the returned file content to actually use.
 
 **Snippet rules (enforced by `apply-plan.js`):**
 - `current` — verbatim Java source copied exactly from the file (whitespace preserved). `isDescriptiveSnippet()` silently drops any finding whose `current` is natural language. Never write prose in `current`.
@@ -115,10 +148,13 @@ Default window: `[line - 15, line + 15]`. Expand if needed to capture outer decl
 | `springboot3` | 3 (javax→jakarta), 11 (RestTemplate), 15 (Springfox), 17 (Servlets), 18 (DAOs), 19 (XML configs) |
 | `java21` | 9 (Executors), 21 (Date/Time), 22 (HttpClient) — full-class read + per-region findings required |
 
-Load rule details on demand from [technical-report](.github/skills/technical-report/SKILL.md). Record confirmed findings:
+All rows above are exactly the `complex: true` hits from the index — the rest of the ruleset (`complex: false`) never needs [technical-report](.github/skills/technical-report/SKILL.md) loaded; the index's `hint` + `context` are sufficient. Record confirmed findings:
 
 ```json
-{ "batch_id": "batch_1", "findings": [{ "skill": "springboot3", "rule": 3, "rule_name": "javax→jakarta", "file": "...", "line": 42, "current": "...", "replacement": "...", "effort": "High", "risk": "High" }] }
+{ "batch_id": "batch_1", "findings": [
+  { "skill": "springboot3", "rule": 3, "rule_name": "javax→jakarta", "file": "...", "line": 42, "auto_ref": true, "effort": "Low", "risk": "Low" },
+  { "skill": "java21", "rule": 21, "rule_name": "Java Time API", "file": "...", "line": 80, "current": "...", "replacement": "...", "effort": "High", "risk": "High" }
+] }
 ```
 
 ### Step 5 — Reduce Phase (Persist & Render)
@@ -133,9 +169,9 @@ Load rule details on demand from [technical-report](.github/skills/technical-rep
   "compliant_files": ["..."]
 }
 ```
-Optional finding keys: `target_path` (required for new-file rules) · `action: "manual_action"` + `instructions` (replaces `current`/`replacement` for deletions).
+Optional finding keys: `target_path` (required for new-file rules) · `action: "manual_action"` + `instructions` (replaces `current`/`replacement` for deletions) · `auto_ref: true` (replaces `current`/`replacement` for hits Node already auto-fixed — `build-report.js` backfills them from `.migration-index.json`, so never write `current`/`replacement` alongside `auto_ref`).
 
-3. Invoke `build-report.js`:
+3. Invoke `build-report.js` (it reads `.migration-index.json` next to `.migration-findings.json` automatically to resolve any `auto_ref` findings — no extra flag needed unless the index was moved):
 
 **Windows:** `$env:PATH += ";$env:ProgramFiles\nodejs;$env:APPDATA\npm"; node <msam_root>/.github/tools/build-report.js --input="<project_path>/.migration-findings.json" --output="<project_path>/<report_filename>" --projectName="<project_name>"`
 **Linux/macOS:** `node <msam_root>/.github/tools/build-report.js --input="..." --output="..." --projectName="..."`
@@ -146,4 +182,4 @@ Return `report_path` to the Orchestrator. Do NOT call `apply-plan.js`.
 
 ---
 
-> **Skill ownership:** grep index → [technical-reporter-rules-extractor](.github/skills/technical-reporter-rules-extractor/SKILL.md) · grep pass + rule details → [technical-report](.github/skills/technical-report/SKILL.md). Rules here take precedence.
+> **Skill ownership:** grep index → [technical-reporter-rules-extractor](.github/skills/technical-reporter-rules-extractor/SKILL.md) (mirrored in `index-project.js`'s `REGISTRY`) · grep pass + rule details → [technical-report](.github/skills/technical-report/SKILL.md), loaded **only** for `complex: true` hits, never upfront for the whole ruleset. Rules here take precedence.

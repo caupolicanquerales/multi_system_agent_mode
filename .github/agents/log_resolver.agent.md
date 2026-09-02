@@ -1,6 +1,6 @@
 name: LogResolver
 description: "Receives LogAnalyzer's defect list, reads each affected file, computes the minimal fix, applies it via diff view for user review (Keep/Undo), and returns a resolution summary."
-tools: ['read_file', 'replace_string_in_file', 'vscode/askQuestions', 'runvscode_command']
+tools: [read_file, replace_string_in_file, vscode_askQuestions]
 user-invocable: false
 
 ## Input
@@ -13,50 +13,44 @@ Structured JSON from LogAnalyzer: `totalDefectsFound` (integer), `defects` array
 
 If `totalDefectsFound` is `0` or `defects` is empty → stop and return: `No defects to resolve.`
 
-### Step 2 — Group & sort defects into parallel batches
+### Category Map — read radius `r` + fix approach (lookup key for Steps 2–4)
 
-1. **Group** all defects by `coordinates.filepath`.
-2. Within each file group, **sort** defects by `coordinates.line` ascending (`null` lines go last).
-3. **Conflict detection:** two defects in the same file conflict when their read windows overlap — i.e., `|line_a − line_b| < 30`. Use a greedy interval sweep to split each file group into **non-overlapping sub-batches** (each sub-batch contains defects whose ±15-line windows do not touch each other).
-4. Build the **current parallel batch** by taking the first (lowest-line) sub-batch from every file. Defects in different files are always non-conflicting and always join the same parallel batch.
-5. Remaining sub-batches (conflicting within a file) are queued for sequential follow-up after the current batch is resolved.
+```
+MISSING_ANNOTATION  : r5  | Add annotation at indicated location
+MISSING_DEPENDENCY  : r5  | Add missing import (read top 30 lines instead of ±r for the import block)
+SYNTAX_ERROR        : r10 | Correct syntax at indicated line/column
+TYPE_MISMATCH       : r10 | Correct type or add required cast/conversion
+DEPENDENCY_ERROR    : r15 | Add missing import or dependency declaration
+DEPRECATED_API      : r15 | Replace deprecated call with modern equivalent
+NULL_POINTER        : r15 | Add null guard or initialize variable
+CONFIGURATION_ERROR : r15 | Correct the configuration value or property
+default/other       : r15 | Smallest safe correction that directly addresses `description`
+```
 
-### Step 3 — Read & compute fixes for the parallel batch
+### Step 2 — Group & sort into parallel batches
 
-**Consolidated reads:** For each unique file referenced in the current batch, issue a **single** `read_file` call that covers the union of all defect windows in that file. Compute the merged range as `max(1, min_line − 15)` to `(max_line + 15)` across all defects targeting that file (capped at file bounds). If any defect has `line = null`, read lines 1–80 and merge with any other windows. This replaces per-defect reads and eliminates redundant I/O.
+- Group defects by `coordinates.filepath`; sort each group by `coordinates.line` ascending (`null` last).
+- Look up each defect's radius `r` in the Category Map.
+- **Conflict rule:** two defects in the same file conflict iff `|line_a − line_b| < r_a + r_b` (their read windows would overlap).
+- Sweep each file group top-to-bottom, splitting on conflicts into non-overlapping sub-batches.
+- **Current batch** = first (lowest-line) sub-batch from every file — different files never conflict, so they always join the same batch. Remaining sub-batches queue for Step 6.
 
-For every defect in the current parallel batch:
+### Step 3 — Read & compute fixes for the current batch
 
-- Resolve the absolute path from `coordinates.filepath` + `pathType`.
-- Extract the defect's context from the already-loaded merged window — do **not** issue an additional `read_file` call.
-- Apply the **minimal** correct fix using the category table below. Before adding any import, method, annotation, or declaration, confirm it does not already exist in the merged window — skip if present.
-- If the fix cannot be determined safely, mark the defect as **skipped** (record reason).
-
-Fix approach by category:
-
-| Category | Approach |
-|---|---|
-| `SYNTAX_ERROR` | Correct syntax at indicated line/column |
-| `DEPENDENCY_ERROR` / `MISSING_DEPENDENCY` | Add missing import or dependency declaration |
-| `DEPRECATED_API` | Replace deprecated call with modern equivalent |
-| `TYPE_MISMATCH` | Correct type or add required cast/conversion |
-| `NULL_POINTER` | Add null guard or initialize variable |
-| `MISSING_ANNOTATION` | Add annotation at indicated location |
-| `CONFIGURATION_ERROR` | Correct the configuration value or property |
-| Other | Smallest safe correction that directly addresses `description` |
+- **One `read_file` per file:** merge all its defects' `[line − r, line + r]` windows into a single range (`null` line → 1–80). Never issue per-defect reads.
+- **Per defect:** resolve path from `coordinates.filepath` + `pathType`; pull context from the already-loaded window (no extra read); apply the fix approach from the Category Map; skip adding anything (import/annotation/method/decl) already present in-window.
+- Undeterminable/risky fix → mark **skipped** (record reason).
 
 ### Step 4 — Apply all fixes in a single pass
 
-For each defect in the batch that has a computable fix, call `replace_string_in_file`:
-
-- Set `oldString` to the exact original lines (correct indentation) and `newString` to the corrected lines.
-- **Uniqueness rule:** `oldString` MUST be unique within the file. Include **1 line of unchanged surrounding context** by default. Expand to 2–3 lines only when the target line (or an adjacent line) is a duplicate pattern within the merged window. If the ±15-line window is still insufficient, widen the read to ±30 lines for that defect only.
-- Calls for **different files** may be issued in parallel. Calls within the **same file** must be issued in **descending line order (bottom-to-top)**. Applying the lowest-line edit last ensures that no earlier edit shifts the byte offsets of lines below it, preventing drift-induced mismatches.
-- Never replace the entire file. Multiple independent changes within one defect → separate calls.
+- `replace_string_in_file` per fixable defect: `oldString` = exact original lines (correct indentation), `newString` = corrected lines.
+- **Uniqueness:** include 1 line of surrounding context by default; expand to 2–3 lines only for duplicate patterns in-window; if still ambiguous, widen the read to `±2r` for that defect only.
+- **Ordering:** different files → parallel calls. Same file → strictly descending line order (bottom-to-top), so a lower-line edit never shifts offsets for edits still pending below it.
+- Never replace a whole file. Split unrelated changes within one defect into separate calls.
 
 ### Step 5 — Single batch Keep/Undo prompt
 
-After **all** fixes in the current batch have been applied, issue **one** `vscode/askQuestions` call listing every applied fix. All options are pre-selected (recommended); the user unchecks the ones to revert.
+After **all** fixes in the current batch have been applied, issue **one** `vscode_askQuestions` call listing every applied fix. All options are pre-selected (recommended); the user unchecks the ones to revert.
 
 ```
 header: "Batch fix review — <N> fixes applied"
