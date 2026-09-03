@@ -6,26 +6,27 @@ user-invocable: false
 ## Global Guardrails
 
 ⛔ **NEVER call `run_in_terminal`, `shell`, or execute system commands** (e.g., `Get-Content`, `type`, `cat`).
-⛔ Use ONLY `read_file` to load skill files under `.github/skills/`.
+⛔ Use ONLY `read_file` to load skill files under `.github/skills/`, and ONLY as a fallback when `skill_content` is not supplied (see Input below).
 ⛔ Return ONLY the expected JSON response. Never attempt to execute the generated command yourself.
+⛔ Use the incoming `metadata` object (see Input below) to resolve recipes and flags — do NOT ignore or drop it. Do NOT return the `metadata` object or the `skill_content` object in the output JSON.
 
 ## Instructions
 
-### How to read a skill file
+### Input
 
-To load a skill, call `read_file` with the absolute path resolved from the workspace root and a line range:
+The incoming JSON (from `CommandExtractor` or the orchestrator's session context cache) includes a `metadata` object holding version fields (e.g. source Java version, target Java version, Spring Boot version, build-tool version). Read and use these values to:
 
-```
-read_file(
-  filePath: "<workspace_root>/<skill_file_path>",
-  startLine: 1,
-  endLine: 150
-)
-```
+- Match the correct recipes / flags in the loaded skill file (e.g. version-specific `UpgradeDependencyVersion` targets, framework-specific flags).
+- Decide between version-conditional command variants when the skill file defines them.
 
-- If the content is incomplete or a required section is not yet visible, issue a second `read_file` call with `startLine: 151, endLine: 350`.
-- Stop reading as soon as you have the command template and all recipe/flag rules you need.
-- If the file path cannot be resolved through `read_file`, return `terminal_command: null` — do NOT fall back to any terminal command.
+`metadata` is an INPUT-ONLY field — consume it while building the command, but never echo it back in the response (see Step 2).
+
+The incoming JSON may also include `skill_content`: the raw text of the skill file the Orchestrator already pre-loaded (per the same routing table in Step 1b, applied by the Orchestrator ahead of time). `skill_content` is also INPUT-ONLY — consume it, never echo it back (see Step 2).
+
+### How to load the skill (zero-tool-call fast path)
+
+- **If `skill_content` is present and non-empty:** use it directly as the loaded skill file. Do NOT call `read_file` — apply the Step 1b routing table only to confirm which skill this content corresponds to (for selecting the right assembly rules below), not to re-fetch it.
+- **Fallback (rare — only if `skill_content` is missing/blank/incomplete):** `read_file` the path Step 1b would have selected (`startLine: 1, endLine: 350`); if it can't be resolved, return `terminal_command: null`.
 
 ### Step 1 — Route by file_type and command
 
@@ -35,27 +36,27 @@ read_file(
 
 Apply this mapping to the raw `os` value first:
 
-| Raw value (any casing) | Normalised |
-|---|---|
-| `windows`, `Windows`, `WINDOWS`, `win`, `win32`, `win64` | `windows` |
-| `linux`, `Linux`, `LINUX`, `ubuntu`, `Ubuntu`, `debian` | `linux` |
-| `mac`, `Mac`, `macOS`, `macos`, `darwin` | `mac` |
-| null / empty / unrecognised | inspect `project_location`: drive-letter prefix (e.g. `C:\`) → `windows`; otherwise → `linux` |
+```
+windows | Windows | WINDOWS | win | win32 | win64        → windows
+linux | Linux | LINUX | ubuntu | Ubuntu | debian          → linux
+mac | Mac | macOS | macos | darwin                        → mac
+null / empty / unrecognised → inspect project_location: drive-letter prefix (e.g. C:\) → windows; else → linux
+```
 
 Use the normalised value in every subsequent step. Never use the raw value.
 
 #### Step 1b — Select the skill file (match the first row that applies, then STOP)
 
-| command | file_type | normalised `os` | Skill File to Read |
-|---|---|---|---|
-| `apply openReWrite` | `maven` | `windows` | `.github/skills/open-re-write-mvn-win/SKILL.md` |
-| `apply openReWrite` | `maven` | `linux` or `mac` | `.github/skills/open-re-write-mvn-nix/SKILL.md` |
-| `apply openReWrite` | `gradle` | any | `.github/skills/open-re-write-gradle/SKILL.md` |
-| `apply openReWrite` | other / null | any | Return error JSON — do NOT read any skill file |
-| any | `maven` | any | `.github/skills/command-generator-mvn/SKILL.md` |
-| any | `gradle` | any | `.github/skills/command-generator-gradle/SKILL.md` |
-| any | `npm` | any | `.github/skills/command-generator-npm/SKILL.md` |
-| any | `unknown` / null | any | `terminal_command: null` — do NOT read any skill file |
+```
+apply openReWrite + maven  + windows      → .github/skills/open-re-write-mvn-win/SKILL.md
+apply openReWrite + maven  + linux|mac    → .github/skills/open-re-write-mvn-nix/SKILL.md
+apply openReWrite + gradle + any          → .github/skills/open-re-write-gradle/SKILL.md
+apply openReWrite + other/null + any      → return error JSON — do NOT read any skill file
+any command + maven   + any               → .github/skills/command-generator-mvn/SKILL.md
+any command + gradle  + any               → .github/skills/command-generator-gradle/SKILL.md
+any command + npm     + any               → .github/skills/command-generator-npm/SKILL.md
+any command + unknown/null + any          → terminal_command: null — do NOT read any skill file
+```
 
 `apply openReWrite` with `other / null` file_type → `terminal_command: null`, `confirmation_message: "ERROR: apply openReWrite is only supported for Maven and Gradle projects."`
 
@@ -77,7 +78,7 @@ These rules apply whenever `command` is `apply openReWrite`. Violating any one o
 ```
 ⛔ **Windows exception:** On `os: windows` the skill delegates to `run-rewrite.ps1`, which hardcodes these flags internally. Do NOT add `-Drewrite.options` flags to the script call — pass ONLY the parameters defined in the Windows skill template (`-ProjectLocation`, `-MvnExe`, `-Artifacts`, `-ActiveRecipes`).
 
-**Rule 3 — Recipe order in `-Drewrite.activeRecipes`:** The mandatory order is: `[all other recipes from rows 1–10]` → `org.openrewrite.maven.UpgradeDependencyVersion` (second-to-last) → `com.custom.openrewrite.MigrateLegacyDependencies` (absolute last). `MigrateLegacyDependencies` is a recipe-only entry — it MUST NOT appear in `-Artifacts` / `<artifacts>`.
+**Rule 3 — Recipe order in `-Drewrite.activeRecipes`:** Use the incoming `metadata` (source/target versions) to resolve which recipes from the loaded skill file apply. The mandatory order is: `[all other recipes from rows 1–10]` → `org.openrewrite.maven.UpgradeDependencyVersion` (second-to-last) → `com.custom.openrewrite.MigrateLegacyDependencies` (absolute last). `MigrateLegacyDependencies` is a recipe-only entry — it MUST NOT appear in `-Artifacts` / `<artifacts>`. `metadata` is consumed here to pick recipes/flags; it is never part of the returned JSON.
 
 **Rule 4 — Windows script invocation:** On `os: windows`, emit a direct `-File` invocation. NEVER use the bare `powershell` keyword. NEVER compute or emit Base64 / `-EncodedCommand`. The terminal command is a plain string — substitute all placeholders and emit as-is:
 ```
@@ -94,9 +95,11 @@ Return ONLY:
   "project_name": "...",
   "project_location": "<absolute path>",
   "terminal_command": "<pwsh.exe -NoProfile -ExecutionPolicy Bypass -File '...' ... | null> — plain string, no Base64, no cd/Set-Location prefix",
-  "display_label": "<e.g. 'Run: mvnw spring-boot:run on my-project'>",
-  "confirmation_message": "<one sentence shown in VS Code confirmation box>"
+  "display_label": "<max 10 words, e.g. 'Run: mvnw spring-boot:run on my-project'>",
+  "confirmation_message": "<max 12 words, one short sentence shown in VS Code confirmation box>"
 }
 ```
 
-No explanation or extra text outside the JSON. Never execute commands or modify files. Never include `metadata` in the output.
+⛔ **Length caps:** `display_label` ≤ 10 words, `confirmation_message` ≤ 12 words. No filler phrases ("Please note that...", "This command will..."). State only the action and target. **Exception:** the OpenRewrite-mandated M1/M2 notes (see the OpenRewrite skill files) are appended to `confirmation_message` verbatim and are exempt from the 12-word cap — they are required warnings, not filler.
+
+No explanation or extra text outside the JSON. Never execute commands or modify files. The incoming `metadata` object and `skill_content` (when supplied) are used only to resolve recipes/flags and build the command (Step 1 / OpenRewrite rules) — never return either of them in the output JSON.

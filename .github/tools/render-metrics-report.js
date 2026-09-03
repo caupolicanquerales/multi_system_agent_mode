@@ -86,7 +86,8 @@ function renderScoringBreakdown(scoring) {
   md += `| Component | Weight | Value | Contribution |\n|---|---|---|---|\n`;
   md += `| Annotation Density | 35% | ${c.annotationDensityScore ?? '-'} | +${((c.annotationDensityScore || 0) * 0.35).toFixed(3)} |\n`;
   md += `| Framework Version | 35% | ${c.frameworkVersionScore ?? '-'} | +${((c.frameworkVersionScore || 0) * 0.35).toFixed(3)} |\n`;
-  md += `| Legacy Debt (penalty) | -30% | ${c.legacyDebtRatio ?? '-'} | -${((c.legacyDebtRatio || 0) * 0.30).toFixed(3)} |\n\n---\n\n`;
+  md += `| Legacy Debt (penalty) | -30% | ${c.legacyDebtRatio ?? '-'} | -${((c.legacyDebtRatio || 0) * 0.30).toFixed(3)} |\n`;
+  md += `| Main Class Missing (penalty) | flat -15% | ${c.mainClassPenalty ?? '-'} | -${(c.mainClassPenalty || 0).toFixed(3)} |\n\n---\n\n`;
   return md;
 }
 
@@ -100,7 +101,8 @@ function renderStructuralMetrics(ast) {
   md += `| Raw JDBC DAO Count | ${ast.rawJdbcDaoCount ?? '-'} |\n`;
   md += `| Legacy Concurrency Markers | ${ast.legacyConcurrencyCount ?? '-'} |\n`;
   md += `| Legacy Javadoc Flags | ${ast.legacyJavadocFlagCount ?? '-'} |\n`;
-  md += `| MVC Config Status | ${ast.mvcConfigStatus ?? '-'} |\n\n---\n\n`;
+  md += `| MVC Config Status | ${ast.mvcConfigStatus ?? '-'} |\n`;
+  md += `| Spring Boot Main Class | ${ast.hasSpringBootMainClass ? `found (\`${ast.springBootMainClassName}\`)` : 'MISSING'} |\n\n---\n\n`;
   return md;
 }
 
@@ -144,6 +146,10 @@ function renderCrossCorrelation(cross, ast) {
     findings.push('- **MVC Configuration:** no `WebMvcConfig` class found — verify the MVC configuration approach manually.');
   }
 
+  if (!cross.hasSpringBootMainClass) {
+    findings.push('- **Spring Boot Main Class:** no class annotated with `@SpringBootApplication` found — the project has no runnable entry point; a main class must be created.');
+  }
+
   md += findings.length ? `${findings.join('\n')}\n\n` : '*No cross-correlation flags triggered.*\n\n';
   md += `---\n\n`;
   return md;
@@ -151,6 +157,9 @@ function renderCrossCorrelation(cross, ast) {
 
 function renderRecommendations(ast, deps, cross) {
   const recs = [];
+  if (!ast.hasSpringBootMainClass) {
+    recs.push('Create a Spring Boot main class (e.g. `Application.java` annotated with `@SpringBootApplication`, with a `main` method calling `SpringApplication.run(...)`) — required for the app to be runnable.');
+  }
   if ((ast.rawJdbcDaoCount || 0) > 0) {
     recs.push(`Migrate the ${ast.rawJdbcDaoCount} raw JDBC DAO(s) to Spring Data JPA repositories.`);
   }

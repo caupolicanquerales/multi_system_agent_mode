@@ -8,8 +8,6 @@ user-invocable: false
 
 ## Path Resolution
 
-Resolve `<gradle>` once from this table.
-
 | OS | `<gradle>` |
 |---|---|
 | Windows | `& "<project_location>\gradlew.bat"` *(full absolute path — no `cd`, `Set-Location`, or bare `gradlew`)* |
@@ -28,7 +26,7 @@ Resolve `<gradle>` once from this table.
 
 ## Normalization Rules
 
-Apply for commands not in the mapping table above:
+For unmapped commands:
 
 - For matching only, trim whitespace and lowercase a copy of `command`.
 - If `os` is `linux` or `mac` and `command` already starts with `./gradlew` or `gradle`, keep it unchanged.

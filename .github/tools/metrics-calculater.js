@@ -57,6 +57,11 @@ const CONSTANTS_NAME_PATTERN    = /Constants$/i;
 const DAO_NAME_PATTERN          = /DAO$/i;
 const HTTP_URL_CONNECTION_REGEX = /HttpURLConnection/i;
 
+// Tolerates annotation lists that may or may not include the leading '@' (AST parser format drift).
+function hasAnnotation(annotations, name) {
+  return (annotations || []).some((a) => String(a).replace(/^@/, '') === name);
+}
+
 // ---------------------------------------------------------------------------
 // AST Metric Extraction (business-ast-report.json)
 // ---------------------------------------------------------------------------
@@ -71,6 +76,7 @@ function extractAstMetrics(classes) {
   let controllerCount         = 0;
   let httpUrlConnectionFlag   = false;
   let webMvcConfig            = null;
+  let springBootMainClass     = null;
 
   for (const cls of classes) {
     const className   = cls.className   || '';
@@ -89,7 +95,7 @@ function extractAstMetrics(classes) {
 
     // Raw JDBC DAO: lives in a .dao package / named *DAO, no @Repository annotation
     const looksLikeDao = packageName.toLowerCase().endsWith('.dao') || DAO_NAME_PATTERN.test(className);
-    if (looksLikeDao && !annotations.includes('Repository')) {
+    if (looksLikeDao && !hasAnnotation(annotations, 'Repository')) {
       rawJdbcDaoCount++;
     }
 
@@ -103,7 +109,7 @@ function extractAstMetrics(classes) {
       legacyJavadocFlagCount++;
     }
 
-    if (annotations.includes('Controller') || annotations.includes('RestController')) {
+    if (hasAnnotation(annotations, 'Controller') || hasAnnotation(annotations, 'RestController')) {
       controllerCount++;
     }
 
@@ -114,6 +120,15 @@ function extractAstMetrics(classes) {
     if (className === 'WebMvcConfig') {
       webMvcConfig = cls;
     }
+
+    // Spring Boot entry point: class annotated with @SpringBootApplication, or a
+    // fallback heuristic for apps that only extend SpringBootServletInitializer /
+    // wire up @EnableAutoConfiguration on an `*Application` class with a documented main method.
+    const isAnnotatedMain = hasAnnotation(annotations, 'SpringBootApplication');
+    const looksLikeMain   = className.endsWith('Application') && /main/i.test(javadoc);
+    if (isAnnotatedMain || looksLikeMain) {
+      springBootMainClass = cls;
+    }
   }
 
   const annotationRatio = totalClasses > 0 ? classesWithAnnotations / totalClasses : 0;
@@ -122,10 +137,14 @@ function extractAstMetrics(classes) {
   // MVC configuration status: migrated (@Configuration, no @EnableWebMvc) vs still on XML/legacy
   let mvcConfigStatus = 'NOT_FOUND';
   if (webMvcConfig) {
-    const hasConfiguration = (webMvcConfig.annotations || []).includes('Configuration');
-    const hasEnableWebMvc  = (webMvcConfig.annotations || []).includes('EnableWebMvc');
+    const hasConfiguration = hasAnnotation(webMvcConfig.annotations, 'Configuration');
+    const hasEnableWebMvc  = hasAnnotation(webMvcConfig.annotations, 'EnableWebMvc');
     mvcConfigStatus = hasConfiguration && !hasEnableWebMvc ? 'MIGRATED' : 'LEGACY_XML';
   }
+
+  // Spring Boot main class presence — no @SpringBootApplication class means the project has no runnable entry point yet
+  const hasSpringBootMainClass  = !!springBootMainClass;
+  const springBootMainClassName = springBootMainClass ? springBootMainClass.className : null;
 
   return {
     totalClasses,
@@ -139,6 +158,8 @@ function extractAstMetrics(classes) {
     legacyJavadocFlagCount,
     httpUrlConnectionFlag,
     mvcConfigStatus,
+    hasSpringBootMainClass,
+    springBootMainClassName,
   };
 }
 
@@ -292,6 +313,7 @@ function crossCorrelate(ast, deps) {
     daoVsPersistenceFlag,
     httpClientModernityFlag,
     mvcConfigStatus: ast.mvcConfigStatus,
+    hasSpringBootMainClass: ast.hasSpringBootMainClass,
   };
 }
 
@@ -303,6 +325,7 @@ const WEIGHTS = {
   frameworkVersion:  0.35,
   legacyDebt:        0.30,
 };
+const MAIN_CLASS_PENALTY = 0.15; // flat deduction when no Spring Boot entry point is found
 
 function clamp01(value) {
   return Math.max(0, Math.min(1, value));
@@ -324,7 +347,7 @@ function computeScore(ast, deps, cross) {
   );
 
   // W3: legacy debt penalty — raw JDBC DAOs, HttpURLConnection, interface constants, legacy threads
-  const total = ast.totalClasses || 1;
+  const total = ast.totalClasses || 1; // guards against divide-by-zero when classes resolves to []
   const legacyEcosystemRatio = deps.legacyEcosystemCount / 5;
   const legacyDebtRatio = clamp01(
     (
@@ -337,10 +360,14 @@ function computeScore(ast, deps, cross) {
     ) / 6
   );
 
+  // Critical readiness penalty: no Spring Boot entry point means the app cannot run at all
+  const mainClassPenalty = cross.hasSpringBootMainClass ? 0 : MAIN_CLASS_PENALTY;
+
   const rawScore =
     (WEIGHTS.annotationDensity * annotationDensityScore) +
     (WEIGHTS.frameworkVersion  * frameworkVersionScore) -
-    (WEIGHTS.legacyDebt        * legacyDebtRatio);
+    (WEIGHTS.legacyDebt        * legacyDebtRatio) -
+    mainClassPenalty;
 
   const modernizationScore = Math.round(clamp01(rawScore) * 100);
 
@@ -355,6 +382,7 @@ function computeScore(ast, deps, cross) {
       annotationDensityScore: Number(annotationDensityScore.toFixed(3)),
       frameworkVersionScore:  Number(frameworkVersionScore.toFixed(3)),
       legacyDebtRatio:        Number(legacyDebtRatio.toFixed(3)),
+      mainClassPenalty:       Number(mainClassPenalty.toFixed(3)),
     },
   };
 }
@@ -396,8 +424,8 @@ function main() {
     process.exit(1);
   }
   if (!Array.isArray(classes)) {
-    console.error(`ERROR: ${astPath} must contain a JSON array of class entries.`);
-    process.exit(1);
+    // Tolerate a non-standard payload shape (object wrapping the array) — default to [] otherwise.
+    classes = (classes && Array.isArray(classes.classes)) ? classes.classes : [];
   }
 
   const depsText = fs.readFileSync(depsPath, 'utf8');

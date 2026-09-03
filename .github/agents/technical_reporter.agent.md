@@ -32,11 +32,11 @@ At least one skill file required. Legacy `Skill file:` (singular) accepted.
 
 ## Report Filename
 
-| Active skills | Filename |
-|---|---|
-| `java21` only | `JAVA21_REFACTORING_PLAN.md` |
-| `springboot3` only | `SPRINGBOOT3_MIGRATION_PLAN.md` |
-| Both | `MIGRATION_PLAN.md` |
+```
+java21 only        → JAVA21_REFACTORING_PLAN.md
+springboot3 only   → SPRINGBOOT3_MIGRATION_PLAN.md
+both               → MIGRATION_PLAN.md
+```
 
 ## run_in_terminal Budget — Exactly 3 calls
 
@@ -116,10 +116,10 @@ There is no "residual manual read" fallback for `complex: false` hits — if `co
 
 **Full-class read rules** — override the narrow window for:
 
-| Category | Rules | Extra constraint |
-|---|---|---|
-| DTO / Record | 1, 24 | Preserve all overloaded constructors, rewritten with `this(...)` delegation. |
-| Non-contiguous edits | 9, 21, 22, 11 (sb3), 15 (sb3) | One finding per disjoint region; emit in ascending line order. |
+```
+DTO / Record (rules 1, 24) → preserve all overloaded constructors, rewritten with this(...) delegation.
+Non-contiguous edits (rules 9, 21, 22, 11 sb3, 15 sb3) → one finding per disjoint region; emit in ascending line order.
+```
 
 **Non-contiguous finding rules:**
 - One finding per contiguous block (import group, field, method). Never span a gap in a single `current`/`replacement` pair.
@@ -143,10 +143,10 @@ There is no "residual manual read" fallback for `complex: false` hits — if `co
 
 **Mandatory explicit inspection targets** (always confirm hits before recording):
 
-| Skill | Rules |
-|---|---|
-| `springboot3` | 3 (javax→jakarta), 11 (RestTemplate), 15 (Springfox), 17 (Servlets), 18 (DAOs), 19 (XML configs) |
-| `java21` | 9 (Executors), 21 (Date/Time), 22 (HttpClient) — full-class read + per-region findings required |
+```
+springboot3 → 3 (javax→jakarta), 11 (RestTemplate), 15 (Springfox), 17 (Servlets), 18 (DAOs), 19 (XML configs)
+java21      → 9 (Executors), 21 (Date/Time), 22 (HttpClient) — full-class read + per-region findings required
+```
 
 All rows above are exactly the `complex: true` hits from the index — the rest of the ruleset (`complex: false`) never needs [technical-report](.github/skills/technical-report/SKILL.md) loaded; the index's `hint` + `context` are sufficient. Record confirmed findings:
 

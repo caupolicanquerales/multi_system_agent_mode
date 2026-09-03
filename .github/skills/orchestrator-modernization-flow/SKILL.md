@@ -25,6 +25,11 @@ description: "Modernization Report Flow execution spec for the Orchestrator: res
 3. **Surface the result** — await `{ status, report_path, modernization_score, verdict, error }`:
    - `status == "cancelled"` → stop silently; MetricsAnalyzer already handled the user prompt.
    - `status == "failure"` → `vscode_askQuestions` (header: Modernization Report Failed, options: OK) surfacing `error`.
-   - `status == "success"` → inform the user that `MODERNIZATION_REPORT.md` was generated at `report_path`, including `modernization_score` and `verdict`.
+   - `status == "success"` → inform the user that `MODERNIZATION_REPORT.md` was generated at `report_path`, including `modernization_score` and `verdict`. Then proceed to **Step 4**.
 
-⛔ Never call TechnicalReporter, CommandGenerator, or `run_in_terminal` directly in this flow — MetricsAnalyzer owns all tool execution.
+4. **Missing main class check** — only when Step 3 was `"success"`:
+   - `read_file` `<project_location>/modernization-metrics.json`, lines 1–200.
+   - `crossCorrelation.hasSpringBootMainClass == false` → load [main-class-generation-flow](.github/skills/main-class-generation-flow/SKILL.md) now and follow it exactly, passing `project_name`, `project_location`, `os`.
+   - `crossCorrelation.hasSpringBootMainClass == true` (or field absent/unreadable) → stop, nothing further to do.
+
+⛔ Never call TechnicalReporter or CommandGenerator directly in this flow — MetricsAnalyzer and main-class-generation-flow handle all scoring and generation tool executions. Step 4's `read_file` on `modernization-metrics.json` is permitted solely for condition checking, and JavaParser execution is permitted upon recalculation request from `main-class-generation-flow`.

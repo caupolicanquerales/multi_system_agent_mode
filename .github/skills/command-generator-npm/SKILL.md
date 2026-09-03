@@ -18,7 +18,7 @@ user-invocable: false
 
 ## Normalization Rules
 
-Apply for commands not in the mapping table above:
+For unmapped commands:
 
 - For matching only, trim whitespace and lowercase a copy of `command`.
 - If `command` already starts with `npm`, `npx`, or `pnpm`, keep it unchanged.

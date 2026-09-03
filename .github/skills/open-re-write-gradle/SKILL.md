@@ -23,7 +23,7 @@ Resolve `<gradle>` and `<prefix>` from [general-command-rules](.github/skills/ge
 | `a.commons` | `org.openrewrite.apache.commons` |
 | `gradleR` | `org.openrewrite.gradle.tooling` |
 
-Expand aliases to full FQCNs when building the final command. All artifact coordinates use the prefix `org.openrewrite.recipe:`. Deduplicate across rows.
+Expand aliases to full FQCNs. Artifact coordinate prefix: `org.openrewrite.recipe:`. Deduplicate across rows.
 
 ## Recipe Selection
 

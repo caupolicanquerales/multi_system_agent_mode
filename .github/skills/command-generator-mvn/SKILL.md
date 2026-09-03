@@ -8,8 +8,6 @@ user-invocable: false
 
 ## Path Resolution
 
-Resolve `<mvn>` and `<prefix>` once from this table.
-
 | OS | `hasMavenWrapper` | `<prefix>` | `<mvn>` |
 |---|---|---|---|
 | Windows | true | *(none)* | `& "<project_location>\mvnw.cmd"` |
@@ -17,7 +15,7 @@ Resolve `<mvn>` and `<prefix>` once from this table.
 | Linux/macOS | true | `cd <project_location> &&` | `./mvnw` |
 | Linux/macOS | false | `cd <project_location> &&` | `mvn` |
 
-> Windows wrapper: use the full absolute path with the PowerShell `&` call operator — never `cd` + bare `mvnw.cmd`.
+> Windows wrapper: full absolute path with `&` call operator — never `cd` + bare `mvnw.cmd`.
 
 ## Command Mapping Table
 
@@ -32,7 +30,7 @@ Resolve `<mvn>` and `<prefix>` once from this table.
 
 ## Normalization Rules
 
-Apply for commands not in the mapping table above:
+For unmapped commands:
 
 - For matching only, trim whitespace and lowercase a copy of `command`.
 - If `command` contains Maven goals (e.g., `clean install`, `verify`, `clean package -DskipTests`) but does not already start with a Maven executable token (`mvn`, `./mvnw`, `mvnw.cmd`), prepend `<prefix> <mvn>`. If the result lacks a test skip flag (`test`, `-DskipTests`, `-Dmaven.test.skip`), append `-DskipTests`.

@@ -14,7 +14,7 @@ user-invocable: false
 - **Never self-heal between retries.** If a command fails, do NOT edit agent files, adjust commands, or retry on your own. Always route failures through LogAnalyzer -> user confirmation -> LogResolver.
 - **Never construct a terminal command yourself** -- always delegate to CommandGenerator. This rule has no exceptions, including for OpenRewrite, Maven, Gradle, or npm commands.
 - **Never read `pom.xml`, `build.gradle`, `package.json`, or any project build file yourself.** Reading build files is exclusively CommandExtractor's responsibility. If you read them yourself, you will use stale or wrong metadata and generate incorrect commands.
-- **Never read any skill file under `.github/skills/` yourself** (including `open-re-write/SKILL.md`, `command-generator-mvn/SKILL.md`, etc.). Loading and applying skill files is exclusively CommandGenerator's responsibility.
+- **Never read any skill file under `.github/skills/` yourself** (including `open-re-write/SKILL.md`, `command-generator-mvn/SKILL.md`, etc.) **to interpret or apply it.** Selecting recipes/flags and building the terminal command is exclusively CommandGenerator's responsibility. **Exception (latency optimization):** per [orchestrator-command-flow](.github/skills/orchestrator-command-flow/SKILL.md) Step 1c, you MAY perform a raw `read_file` of the routed skill file solely to pre-load its text as `skill_content` for injection into CommandGenerator's payload. This is a passive copy step only — never interpret, summarize, or act on the content yourself.
 - If any sub-agent returns null for a required field, inform the user clearly and stop the workflow.
 - You are the sole agent that communicates with the user. Every response comes from you, the Orchestrator, not from any other agent or the default chat assistant.
 
@@ -35,6 +35,7 @@ Do **not** forward the full CommandExtractor JSON to CommandGenerator. Extract a
 
 - command, project_name, project_location, file_type, os, hasMavenWrapper, pwsh_available (if applicable)
 - From `metadata` (flat): javaVersion, nodeVersion, springBootVersion, springFrameworkVersion, javaxServletVersion, junitVersion, reactVersion, angularVersion, vueVersion, nextVersion, nestjsVersion, expressVersion
+- `skill_content` (if pre-loaded per orchestrator-command-flow Step 1c) — the raw text of the skill file resolved for this request, so CommandGenerator can skip its own `read_file` call. Omit this field entirely if the pre-load step failed or was skipped; CommandGenerator will fall back to reading the file itself.
 
 Omit any other non-essential fields.
 

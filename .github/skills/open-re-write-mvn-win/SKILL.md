@@ -1,6 +1,6 @@
 ﻿---
 name: open-re-write-mvn-win
-description: "Use when the command is `apply openReWrite`, file_type is `maven`, and os is Windows. Contains the OpenRewrite Maven command template (Windows PowerShell base64-encoded), recipe selection conditions, and collection rules for building automated Maven migration commands."
+description: "Use when the command is `apply openReWrite`, file_type is `maven`, and os is Windows. Contains the OpenRewrite Maven command template (direct pwsh.exe -File invocation of run-rewrite.ps1), recipe selection conditions, and collection rules for building automated Maven migration commands."
 user-invocable: false
 ---
 
@@ -41,7 +41,7 @@ Substitute `<project_location>`, `<skill_dir>`, `<mvn_exe>`, `<artifacts>`, `<re
 
 - Without wrapper: `<mvn_exe>` = `mvn`
 - With wrapper: `<mvn_exe>` = `<project_location>\mvnw.cmd`
-- `<skill_dir>` = the directory portion of the absolute path used to read THIS file (i.e., remove `\SKILL.md` from the end of that path). Example: if this file was read from `C:\Users\...\multi_system_agent_mode\.github\skills\open-re-write-mvn-win\SKILL.md`, then `<skill_dir>` = `C:\Users\...\multi_system_agent_mode\.github\skills\open-re-write-mvn-win`.
+- `<skill_dir>` = the directory portion of the absolute path used to read THIS file (strip the trailing `\SKILL.md`).
 
 **Emit the final terminal command (Rule 4):** Substitute all placeholders and output this plain string as `terminal_command`. Do NOT compute Base64. Do NOT use `-EncodedCommand`.
 ```

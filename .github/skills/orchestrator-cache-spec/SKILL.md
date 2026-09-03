@@ -20,6 +20,7 @@ project_context[<project_name>] = {
   metadata            ← flat object of all version fields
 }
 ```
+`skill_content` is NEVER cached here — it depends on the (per-request) `command` field, so Command Flow Step 1c re-resolves and re-reads it every time, even on a cache bypass.
 
 **Cache validity rules:**
 - An entry is valid for the duration of the current conversation turn sequence.
@@ -38,6 +39,8 @@ project_context[<project_name>] = {
 3. Only a flow-specific field changes (e.g. `command` for Command Flow); no metadata fields are expected to differ.
 
 When the bypass fires: update the cached entry's changed field and reuse the rest of the entry as-is — do not re-call CommandExtractor.
+
+⛔ **Ordering guardrail:** The write `project_context[<project_name>].command = <new command>` MUST complete BEFORE the payload is assembled and sent onward (e.g. to `CommandGenerator`). Never forward the stale in-memory entry first and patch `command` afterward — sending the old `command` value re-runs the previous action instead of the newly requested one.
 
 ---
 
