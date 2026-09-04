@@ -21,19 +21,24 @@ if "%JAR_INPUT%"=="" (
 for %%I in ("%TARGET_DIR%") do set "ABS_TARGET_DIR=%%~fI"
 for %%I in ("%JAR_INPUT%") do set "ABS_JAR_INPUT=%%~fI"
 
-:: Check if the JAR parameter is a directory or direct file path
+:: the built artifact is intentionally named "javapaser" (no 'r') per pom.xml artifactId
 if exist "%ABS_JAR_INPUT%\javapaser-0.0.1-SNAPSHOT.jar" (
     set "PARSER_JAR=%ABS_JAR_INPUT%\javapaser-0.0.1-SNAPSHOT.jar"
 ) else if exist "%ABS_JAR_INPUT%" (
     set "PARSER_JAR=%ABS_JAR_INPUT%"
 ) else (
-    echo [ERROR] Specified JavaParser JAR or directory does not exist: %ABS_JAR_INPUT%
+    echo [ERROR] Specified JavaParser JAR or directory does not exist: "%ABS_JAR_INPUT%"
+    exit /b 1
+)
+
+if not exist "%ABS_TARGET_DIR%\src\main\java" (
+    echo [ERROR] Source directory does not exist: "%ABS_TARGET_DIR%\src\main\java"
     exit /b 1
 )
 
 echo ========================================================
-echo  Target Project: %ABS_TARGET_DIR%
-echo  Parser Location: %PARSER_JAR%
+echo  Target Project: "%ABS_TARGET_DIR%"
+echo  Parser Location: "%PARSER_JAR%"
 echo ========================================================
 
 :: 3. Export Maven Dependency Tree
@@ -46,21 +51,23 @@ if exist "%ABS_TARGET_DIR%\mvnw.cmd" (
     call mvn dependency:tree -DoutputFile="%ABS_TARGET_DIR%\dependency-tree.txt"
 )
 
-if %ERRORLEVEL% NEQ 0 (
+if !ERRORLEVEL! NEQ 0 (
     echo [ERROR] Maven dependency:tree execution failed.
-    exit /b %ERRORLEVEL%
+    exit /b !ERRORLEVEL!
 )
+
 :: 4. Run JavaParser Extractor
 echo [2/2] Running JavaParser Extractor...
 java -jar "%PARSER_JAR%" "%ABS_TARGET_DIR%\src\main\java" "%ABS_TARGET_DIR%\business-ast-report.json"
-if %ERRORLEVEL% NEQ 0 (
+if !ERRORLEVEL! NEQ 0 (
     echo [ERROR] JavaParser execution failed.
-    exit /b %ERRORLEVEL%
+    exit /b !ERRORLEVEL!
 )
 
 echo ========================================================
 echo  SUCCESS: Diagnostic reports created in target root:
 echo   - %ABS_TARGET_DIR%\dependency-tree.txt
 echo   - %ABS_TARGET_DIR%\business-ast-report.json
+echo   - %ABS_TARGET_DIR%\business-ast-report-resolved.json
 echo ========================================================
 endlocal
